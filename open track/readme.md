@@ -86,6 +86,81 @@ Ensembling: You now have 5 different sets of predictions for the test data (one 
 
 Final Touches: The averaged predictions (which are decimals) are rounded to the nearest whole number and clipped to ensure they are between 1 and 19.
 
+
+
+___
+
+# data pre-processing  
+
+1. Text Normalization (Cleaning)
+
+This is the first and most fundamental step. Raw text from the internet or different sources is often "messy". The goal here is to make it clean and consistent. The script uses the ArabertPreprocessor library, which is specifically designed for Arabic text and performs several cleaning actions:
+
+Removes Diacritics/Tashkeel (التشكيل): It removes vowels and other markings like fatha (ـَ), damma (ـُ), kasra (ـِ), and shadda (ـّ). For most modern Transformer models, this helps reduce the complexity of the vocabulary without losing too much meaning.
+
+Example: الْعَرَبِيَّةُ becomes العربية
+
+Normalizes Alef Variants: It standardizes different forms of the letter Alef (أ, إ, آ) into a single form (ا). This prevents the model from treating words like "أحمد" and "احمد" as completely different words.
+
+Example: أحمد إبراهيم becomes احمد ابراهيم
+
+Normalizes Yaa and Taa Marbuta: It converts the final Yaa (ى) to (ي) and the Taa Marbuta (ة) to Haa (ه). This is a common normalization step.
+
+Example: مَدْرَسَةٌ فِي القَرْيَةِ becomes مدرسه في القريه
+
+Removes Repetitive Characters: It reduces elongated characters used for emphasis.
+
+Example: جمييييييل becomes جميل
+
+Removes Punctuation and Special Characters: It strips out commas, periods, question marks, etc., leaving only the core words.
+
+Why is this done? To simplify the text and reduce the vocabulary size the model has to learn. It makes the model more robust by treating slightly different writings of the same word as identical.
+
+2. Feature Engineering (Creating New Information)
+
+This is where the script acts like a data scientist. Instead of just giving the model the text, it extracts explicit numerical facts (features) about each sentence using the SAMER Lexicon. This gives the model extra clues about readability that might not be obvious from the text alone.
+
+For every single sentence, it calculates these 7 features:
+
+len(text) - Character Count: A simple count of the total number of characters. Longer sentences are often harder to read.
+
+len(words) - Word Count: The total number of words. This is a classic readability metric.
+
+np.mean([len(w) for w in words]) - Average Word Length: The average number of characters per word. Sentences with longer, more complex words (e.g., "استنتاجات") are generally harder than sentences with short words (e.g., "بيت").
+
+np.mean(word_difficulties) - Average Word Readability Score: This is a very powerful feature. The script looks up every word in the SAMER Lexicon, gets its 1-5 difficulty score, and then calculates the average score for the entire sentence. A higher average indicates a more difficult sentence.
+
+np.max(word_difficulties) - Maximum Word Readability Score: This feature captures the difficulty of the single hardest word in the sentence. A sentence might be simple overall but contain one very difficult word (e.g., a scientific term) that makes it hard to understand.
+
+np.sum(np.array(word_difficulties) > 4) - Count of "Hard" Words: This counts how many words in the sentence have a difficulty score of 5 (the highest). This helps the model identify sentences with a lot of advanced vocabulary.
+
+len([w for w in words if w not in lexicon]) / len(words) - Out-of-Vocabulary (OOV) Rate: This calculates the percentage of words in the sentence that are so rare they don't even appear in the 40k-word SAMER Lexicon. A high OOV rate is a strong signal that the sentence contains very specialized or uncommon terminology, making it difficult.
+
+Why is this done? Transformers are great at understanding context, but they can sometimes miss these simple, powerful signals. By feeding these numbers directly into the model, we are explicitly telling it: "Pay attention! This sentence has long words and a high average difficulty."
+
+3. Tokenization (Translating for the AI)
+
+This is the final step to prepare the data for the Transformer model (araelectra). A Transformer doesn't read words; it reads numbers. Tokenization is the process of converting the cleaned text into a sequence of numbers.
+
+WordPiece Tokenization: The script uses a Tokenizer that breaks words down into common sub-word units. For example, a complex word might be broken into a stem and a suffix.
+
+Example: The word المكتبات (libraries) might be tokenized into [ال, مكتب, ات].
+
+Converting to IDs: Each of these sub-word pieces has a unique number (ID) in the model's vocabulary. The tokenizer converts the sequence of pieces into a sequence of numbers.
+
+Example: [ال, مكتب, ات] might become [4, 2590, 778].
+
+Padding and Truncation: All sentences must be the same length to be processed in batches. The tokenizer ensures this by:
+
+Padding: Adding a special [PAD] token (usually with ID 0) to the end of shorter sentences.
+
+Truncation: Cutting off sentences that are longer than the maximum length (set to 256).
+
+Adding Special Tokens: It adds [CLS] at the beginning (a token the model uses to understand the whole sentence) and [SEP] at the end (a separator token).
+
+Creating an Attention Mask: This is a list of 1s and 0s that tells the model which tokens are real words (pay attention to these) and which are just padding (ignore these).
+
+Why is this done? This is the mandatory final step to format the text into the exact numerical input that the Transformer model was designed to accept.
 Saving the File: The final predictions are saved into a file named submission_..._hybrid_csv.csv in the Google Drive, perfectly formatted with the required "Sentence ID" and "Prediction" columns.
 
 In summary, the script executes a complete, professional-level machine learning pipeline that intelligently combines multiple data sources, engineers custom features, and uses robust training and ensembling techniques to create the best possible submission file for the competition.
