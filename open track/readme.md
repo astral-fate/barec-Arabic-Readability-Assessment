@@ -164,3 +164,48 @@ Why is this done? This is the mandatory final step to format the text into the e
 Saving the File: The final predictions are saved into a file named submission_..._hybrid_csv.csv in the Google Drive, perfectly formatted with the required "Sentence ID" and "Prediction" columns.
 
 In summary, the script executes a complete, professional-level machine learning pipeline that intelligently combines multiple data sources, engineers custom features, and uses robust training and ensembling techniques to create the best possible submission file for the competition.
+
+
+
+______________
+
+
+
+
+### Data Preprocessing Steps
+
+the model performs a sophisticated, three-stage preprocessing pipeline designed to clean, enrich, and format the Arabic text for the model.
+
+1.  **Text Normalization (Cleaning)**: The first stage cleans the raw text to ensure consistency. The `ArabertPreprocessor` library handles this automatically by:
+    * Removing diacritics (Tashkeel) like fatha and damma.
+    * Standardizing different forms of the letter Alef (أ, إ, آ) into a single form (ا).
+    * Normalizing the final Yaa (ى) to (ي) and Taa Marbuta (ة) to Haa (ه).
+    * Reducing elongated characters (e.g., جمييييل becomes جميل).
+
+2.  **Feature Engineering**: The script then extracts 7 explicit numerical features from each sentence using the SAMER Lexicon to give the model extra clues about readability. These features are:
+    * Total character count.
+    * Total word count.
+    * Average word length.
+    * Average word readability score (looking up each word in the lexicon).
+    * The maximum readability score of the single hardest word in the sentence.
+    * A count of "difficult" words (those with a readability score greater than 4).
+    * The percentage of words so uncommon they are not found in the SAMER lexicon.
+
+3.  **Tokenization**: The final step translates the cleaned text and engineered features into a numerical format the AI can understand. This involves:
+    * Using a WordPiece tokenizer to break words into common sub-word units.
+    * Converting these sub-word pieces into unique numerical IDs from the model's vocabulary.
+    * Ensuring all sentences have a uniform length by padding shorter sentences and truncating longer ones.
+    * Adding special tokens like `[CLS]` (start of sentence) and `[SEP]` (end of sentence).
+    * Creating an "attention mask" to tell the model to focus on real tokens and ignore padding.
+
+***
+
+### Implementation Verification
+
+
+
+* ✅ **Text Normalization**: This is implemented. The script initializes the preprocessor with `arabert_preprocessor = ArabertPreprocessor(model_name=MODEL_NAME)` and then applies it to the 'text' column of the train, validation, and test dataframes with the line: `df['text'] = df['text'].apply(arabert_preprocessor.preprocess)`.
+
+* ✅ **Feature Engineering**: This is fully implemented in the `get_lexical_features` function. The code in that function calculates the exact 7 features described in the documentation, which are then added as a new 'features' column to each dataframe.
+
+* ✅ **Tokenization**: This is fully implemented within the `ReadabilityDataset` class. The line `self.encodings = tokenizer(texts, truncation=True, padding="max_length", max_length=256)` uses the Hugging Face tokenizer to perform all the described tokenization steps—converting text to IDs, padding, truncating, adding special tokens, and creating an attention mask—in a single, efficient operation.
