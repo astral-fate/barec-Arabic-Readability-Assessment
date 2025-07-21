@@ -1,7 +1,22 @@
+# =====================================================================================
+# 0. SETUP FOR GOOGLE COLAB
+# =====================================================================================
+# This section mounts your Google Drive to make your files accessible.
+# You will be prompted to authorize Colab to access your Google Drive.
+from google.colab import drive
+drive.mount('/content/drive')
 
+# --- Install Necessary Libraries ---
+# This will install all required libraries quietly in your Colab environment.
+# !pip install -q transformers[torch] datasets pandas scikit-learn arabert accelerate
+
+# =====================================================================================
+# 1. CONFIGURATION
+# =====================================================================================
 import pandas as pd
 import numpy as np
 import os
+import gc
 import torch
 import torch.nn as nn
 import zipfile
@@ -9,117 +24,114 @@ from sklearn.metrics import cohen_kappa_score
 from torch.utils.data import Dataset as TorchDataset
 from transformers import AutoTokenizer, AutoModel, TrainingArguments, Trainer, EarlyStoppingCallback
 from arabert.preprocess import ArabertPreprocessor
-# MODIFICATION: Import FarasaSegmenter to manually set its mode
-from farasa.segmenter import FarasaSegmenter
 
-# This setting is still good practice.
-os.environ['JAVA_TOOL_OPTIONS'] = '-Dfile.encoding=UTF-8'
-
-# =====================================================================================
-# 1. CONFIGURATION
-# =====================================================================================
 # --- Model & Preprocessing ---
+# You can switch between different models by uncommenting the desired one.
 MODEL_NAME = "aubmindlab/bert-large-arabertv2"
+# MODEL_NAME = "CAMeL-Lab/bert-base-arabic-camelbert-mix-sentiment"
+
 arabert_preprocessor = ArabertPreprocessor(model_name=MODEL_NAME)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-
-# --- MODIFICATION: Force Farasa to use Standalone mode ---
-# This is the key fix for the persistent UnicodeDecodeError.
-# It's more stable for long sentences than the default interactive mode.
-print("Switching FarasaSegmenter to more stable Standalone mode...")
-arabert_preprocessor.farasa_segmenter = FarasaSegmenter(interactive=False)
-
 
 # --- Training & Classification ---
 RANDOM_STATE = 42
 NUM_LABELS = 19
 
-# --- File Paths for Local Execution ---
-BASE_DIR = "./"
+# --- File Paths (Google Colab Environment) ---
+# IMPORTANT: This base directory points to your Google Drive.
+# All model checkpoints and results will be saved here.
+BASE_DIR = "/content/drive/MyDrive/BAREC_Competition/"
+
+# Create the base directory if it doesn't exist to avoid errors
 os.makedirs(BASE_DIR, exist_ok=True)
 
 # Data paths
-BAREC_TRAIN_PATH = 'train.csv'
-BAREC_DEV_PATH = 'dev.csv'
-BLIND_TEST_PATH = 'blind_test_data.csv'
+BAREC_TRAIN_PATH = os.path.join(BASE_DIR, 'train.csv')
+BAREC_DEV_PATH = os.path.join(BASE_DIR, 'dev.csv')
+BLIND_TEST_PATH = os.path.join(BASE_DIR, 'blind_test.csv')
 
-# Submission file paths
+# Submission and model output paths
 SUBMISSION_FILE_NAME = "prediction.csv"
 SUBMISSION_PATH = os.path.join(BASE_DIR, SUBMISSION_FILE_NAME)
 ZIPPED_SUBMISSION_PATH = os.path.join(BASE_DIR, "prediction.zip")
+OUTPUT_DIR = os.path.join(BASE_DIR, "results_classification_model") # Checkpoints will be saved here
 
 # =====================================================================================
 # 2. DATA LOADING
 # =====================================================================================
-
-def load_training_and_validation_data():
-    """Loads and prepares training and validation data from local CSVs."""
-    print("--- Loading BAREC Data from CSV files ---")
+def load_data():
+    """
+    Loads data from train, dev, and blind_test CSV files from Google Drive.
+    """
+    print(f"--- Loading BAREC Data from: {BASE_DIR} ---")
     try:
-        train_df = pd.read_csv(BAREC_TRAIN_PATH, encoding='utf-8')
-        val_df = pd.read_csv(BAREC_DEV_PATH, encoding='utf-8')
-        train_df = train_df[['Sentences', 'Readability_Level_19']].rename(columns={'Sentences': 'text', 'Readability_Level_19': 'label'})
-        val_df = val_df[['Sentences', 'Readability_Level_19']].rename(columns={'Sentences': 'text', 'Readability_Level_19': 'label'})
-    except (FileNotFoundError, KeyError) as e:
-        print(f"❗️ ERROR loading local CSVs: {e}")
-        return None, None
+        # Load the datasets, which are one sentence per row
+        train_df = pd.read_csv(BAREC_TRAIN_PATH)
+        val_df = pd.read_csv(BAREC_DEV_PATH)
+        blind_test_df = pd.read_csv(BLIND_TEST_PATH)
 
-    print(f"Loaded {len(train_df)} training documents and {len(val_df)} validation documents.")
-    train_df = train_df.assign(text=train_df['text'].str.split('\n')).explode('text').reset_index(drop=True)
-    val_df = val_df.assign(text=val_df['text'].str.split('\n')).explode('text').reset_index(drop=True)
-    train_df.dropna(subset=['text'], inplace=True)
-    val_df.dropna(subset=['text'], inplace=True)
-    print(f"Exploded into {len(train_df)} training sentences and {len(val_df)} validation sentences.")
-    return train_df, val_df
+        # --- Process Training and Validation Data ---
+        # Select the text and label columns, and rename them for consistency
+        train_df = train_df[['Sentence', 'Readability_Level_19']].rename(columns={'Sentence': 'text', 'Readability_Level_19': 'label'})
+        val_df = val_df[['Sentence', 'Readability_Level_19']].rename(columns={'Sentence': 'text', 'Readability_Level_19': 'label'})
 
-def load_blind_test_data(file_path):
-    """Loads and prepares the blind test set from a local CSV file."""
-    print(f"\n--- Loading Blind Test Data from local file: {file_path} ---")
-    try:
-        doc_test_df = pd.read_csv(file_path, encoding='utf-8')
-        doc_test_df = doc_test_df.rename(columns={'ID': 'doc_id', 'Document': 'text'})
-        print(f"Loaded {len(doc_test_df)} documents from the blind test file.")
-        sentence_test_df = doc_test_df.assign(text=doc_test_df['text'].str.split('\n')).explode('text')
-        sentence_test_df.dropna(subset=['text'], inplace=True)
-        sentence_test_df['doc_id'] = sentence_test_df['doc_id'].ffill()
-        print(f"Exploded into {len(sentence_test_df)} sentences for prediction.")
-        return sentence_test_df
+        # --- Process Blind Test Data ---
+        # The 'Document' column is the identifier needed for aggregation
+        blind_test_df = blind_test_df[['Sentence', 'Document']].rename(columns={'Sentence': 'text', 'Document': 'doc_id'})
+
+        # Preprocess text
+        print("Preprocessing text data...")
+        train_df['text'] = train_df['text'].apply(arabert_preprocessor.preprocess)
+        val_df['text'] = val_df['text'].apply(arabert_preprocessor.preprocess)
+        blind_test_df['text'] = blind_test_df['text'].apply(arabert_preprocessor.preprocess)
+
+        # Clean and prepare training data
+        train_df.dropna(subset=['text', 'label'], inplace=True)
+        train_df['label'] = train_df['label'].astype(int)
+        train_df = train_df.sample(frac=1, random_state=RANDOM_STATE).reset_index(drop=True)
+
     except FileNotFoundError as e:
-        print(f"❗️ ERROR loading blind test file: {e}")
-        return None
+        print(f"❗️ ERROR: {e}. Make sure train.csv, dev.csv, and blind_test.csv are in your '{BASE_DIR}' folder in Google Drive.")
+        return None, None, None
+    except KeyError as e:
+        print(f"❗️ ERROR: A required column was not found: {e}. Please check the CSV file format.")
+        return None, None, None
 
-# --- Execute Data Loading and Preprocessing ---
-train_df, val_df = load_training_and_validation_data()
-test_df = load_blind_test_data(BLIND_TEST_PATH)
+    print(f"Loaded {len(train_df)} sentences from {BAREC_TRAIN_PATH}.")
+    print(f"Loaded {len(val_df)} sentences from {BAREC_DEV_PATH} (for validation).")
+    print(f"Loaded {len(blind_test_df)} sentences from {BLIND_TEST_PATH} (for prediction).")
 
-if train_df is None or val_df is None or test_df is None:
-    print("\nScript aborted due to data loading errors.")
+    return train_df, val_df, blind_test_df
+
+# Execute loading function
+train_df, val_df, blind_test_df = load_data()
+if train_df is None:
+    # Stop execution if data loading fails
     exit()
 
-print("\n--- Preprocessing Text ---")
-train_df['text'] = train_df['text'].apply(arabert_preprocessor.preprocess)
-val_df['text'] = val_df['text'].apply(arabert_preprocessor.preprocess)
-test_df['text'] = test_df['text'].apply(arabert_preprocessor.preprocess)
-print("Text preprocessing finished.")
-
 # =====================================================================================
-# 3. MODEL, DATASET, AND TRAINER
+# 3. SIMPLIFIED MODEL, DATASET, AND TRAINER
 # =====================================================================================
-
 class ReadabilityModel(nn.Module):
-    """A standard Transformer model for classification, without extra features."""
+    """
+    A simplified model that uses only the transformer output for classification.
+    """
     def __init__(self, model_name, num_labels):
-        super().__init__()
+        super(ReadabilityModel, self).__init__()
         self.transformer = AutoModel.from_pretrained(model_name)
         transformer_output_dim = self.transformer.config.hidden_size
         self.head = nn.Sequential(
+            nn.Linear(transformer_output_dim, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
             nn.Dropout(0.3),
-            nn.Linear(transformer_output_dim, num_labels)
+            nn.Linear(512, num_labels)
         )
         self.loss_fn = nn.CrossEntropyLoss()
 
     def forward(self, input_ids, attention_mask, labels=None):
         transformer_outputs = self.transformer(input_ids=input_ids, attention_mask=attention_mask)
+        # Use the [CLS] token's embedding for classification
         cls_embedding = transformer_outputs.last_hidden_state[:, 0, :]
         logits = self.head(cls_embedding)
         loss = None
@@ -128,7 +140,9 @@ class ReadabilityModel(nn.Module):
         return (loss, logits) if loss is not None else logits
 
 class ReadabilityDataset(TorchDataset):
-    """A simplified dataset class that only handles tokenized text and labels."""
+    """
+    Torch Dataset that tokenizes text.
+    """
     def __init__(self, texts, labels=None):
         self.encodings = tokenizer(texts, truncation=True, padding="max_length", max_length=256)
         self.labels = labels
@@ -136,6 +150,7 @@ class ReadabilityDataset(TorchDataset):
     def __getitem__(self, idx):
         item = {key: torch.tensor(val[idx]) for key, val in self.encodings.items()}
         if self.labels is not None:
+            # Labels are 1-19, so we subtract 1 to make them 0-18 for CrossEntropyLoss
             item['labels'] = torch.tensor(self.labels[idx] - 1, dtype=torch.long)
         return item
 
@@ -143,26 +158,30 @@ class ReadabilityDataset(TorchDataset):
         return len(self.encodings['input_ids'])
 
 def compute_metrics(p):
-    """Computes the quadratic weighted kappa score for evaluation."""
-    preds = np.argmax(p.predictions, axis=1)
-    return {"qwk": cohen_kappa_score(p.label_ids, preds, weights='quadratic')}
-
+    """
+    Computes the Quadratic Weighted Kappa score for evaluation.
+    """
+    logits, labels = p.predictions, p.label_ids
+    preds = np.argmax(logits, axis=1)
+    return {"qwk": cohen_kappa_score(labels, preds, weights='quadratic')}
 
 # =====================================================================================
-# 4. TRAINING AND PREDICTION
+# 4. TRAINING AND EVALUATION
 # =====================================================================================
-print("\n===== PREPARING FOR TRAINING AND PREDICTION =====\n")
+print("\n===== PREPARING FOR CLASSIFICATION TRAINING RUN =====\n")
 
-# --- Create Datasets ---
+# Free up memory before training
+gc.collect()
+torch.cuda.empty_cache()
+
 train_dataset = ReadabilityDataset(train_df['text'].tolist(), train_df['label'].tolist())
 val_dataset = ReadabilityDataset(val_df['text'].tolist(), val_df['label'].tolist())
-test_dataset = ReadabilityDataset(test_df['text'].tolist())
+blind_test_dataset = ReadabilityDataset(blind_test_df['text'].tolist())
 
-# --- Initialize Model and Trainer ---
 model = ReadabilityModel(MODEL_NAME, num_labels=NUM_LABELS)
 
 training_args = TrainingArguments(
-    output_dir=os.path.join(BASE_DIR, "results"),
+    output_dir=OUTPUT_DIR,
     num_train_epochs=10,
     per_device_train_batch_size=16,
     per_device_eval_batch_size=32,
@@ -189,28 +208,38 @@ trainer = Trainer(
     callbacks=[EarlyStoppingCallback(early_stopping_patience=2)]
 )
 
-# --- Train ---
-print("Starting model training...")
+print(f"Starting model training... Checkpoints will be saved to: {OUTPUT_DIR}")
 trainer.train()
 print("Training finished.")
 
-# --- Predict ---
-print("\nGenerating predictions on the test set...")
-predictions = trainer.predict(test_dataset)
-sentence_level_preds = np.argmax(predictions.predictions, axis=1) + 1
-test_df['prediction'] = sentence_level_preds
+# =====================================================================================
+# 5. PREDICTION AND SUBMISSION FILE GENERATION
+# =====================================================================================
+print("\n===== GENERATING CLASSIFICATION PREDICTIONS ON THE BLIND TEST SET =====\n")
+predictions = trainer.predict(blind_test_dataset)
+test_logits = predictions.predictions
 
-# --- Aggregate and Save ---
+# Get the predicted class (0-18) and add 1 to map it back to the original label (1-19)
+sentence_level_preds = np.argmax(test_logits, axis=1) + 1
+blind_test_df['prediction'] = sentence_level_preds
+
 print("Aggregating sentence predictions to document-level using MAX rule...")
-doc_level_preds = test_df.groupby('doc_id')['prediction'].max()
-submission_df = pd.DataFrame({'Document ID': doc_level_preds.index, 'Prediction': doc_level_preds.values})
+# Group by document ID and take the max prediction as the document-level readability
+doc_level_preds = blind_test_df.groupby('doc_id')['prediction'].max()
+
+submission_df = pd.DataFrame({
+    'Document ID': doc_level_preds.index,
+    'Prediction': doc_level_preds.values
+})
 
 print(f"Saving prediction file to: {SUBMISSION_PATH}")
 submission_df.to_csv(SUBMISSION_PATH, index=False)
 
-print(f"\nCompressing '{SUBMISSION_FILE_NAME}' into '{ZIPPED_SUBMISSION_PATH}'...")
+print(f"\n===== CREATING SUBMISSION ZIP FILE =====\n")
+print(f"Compressing '{SUBMISSION_FILE_NAME}' into '{ZIPPED_SUBMISSION_PATH}'...")
 with zipfile.ZipFile(ZIPPED_SUBMISSION_PATH, 'w', zipfile.ZIP_DEFLATED) as zipf:
-    zipf.write(SUBMISSION_PATH, arcname=SUBMISSION_FILE_NAME)
+    # The arcname parameter ensures the file inside the zip doesn't have the directory structure.
+    zipf.write(SUBMISSION_PATH, arcname=os.path.basename(SUBMISSION_PATH))
 
-print(f"Submission file '{os.path.basename(ZIPPED_SUBMISSION_PATH)}' created successfully.")
+print(f"Submission file '{os.path.basename(ZIPPED_SUBMISSION_PATH)}' created successfully in '{BASE_DIR}'.")
 print("\n--- Script Finished ---")
