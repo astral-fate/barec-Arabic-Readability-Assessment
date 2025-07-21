@@ -8,7 +8,7 @@ drive.mount('/content/drive')
 
 # --- Install Necessary Libraries ---
 # This will install all required libraries quietly in your Colab environment.
-# !pip install -q transformers[torch] datasets pandas scikit-learn arabert accelerate
+
 
 # =====================================================================================
 # 1. CONFIGURATION
@@ -20,16 +20,14 @@ import gc
 import torch
 import torch.nn as nn
 import zipfile
+import sys
 from sklearn.metrics import cohen_kappa_score
 from torch.utils.data import Dataset as TorchDataset
 from transformers import AutoTokenizer, AutoModel, TrainingArguments, Trainer, EarlyStoppingCallback
 from arabert.preprocess import ArabertPreprocessor
 
 # --- Model & Preprocessing ---
-# You can switch between different models by uncommenting the desired one.
 MODEL_NAME = "aubmindlab/bert-large-arabertv2"
-# MODEL_NAME = "CAMeL-Lab/bert-base-arabic-camelbert-mix-sentiment"
-
 arabert_preprocessor = ArabertPreprocessor(model_name=MODEL_NAME)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
@@ -38,23 +36,20 @@ RANDOM_STATE = 42
 NUM_LABELS = 19
 
 # --- File Paths (Google Colab Environment) ---
-# IMPORTANT: This base directory points to your Google Drive.
-# All model checkpoints and results will be saved here.
 BASE_DIR = "/content/drive/MyDrive/BAREC_Competition/"
-
-# Create the base directory if it doesn't exist to avoid errors
 os.makedirs(BASE_DIR, exist_ok=True)
 
-# Data paths
+# Data paths (CORRECTED FILE AND COLUMN NAMES)
 BAREC_TRAIN_PATH = os.path.join(BASE_DIR, 'train.csv')
 BAREC_DEV_PATH = os.path.join(BASE_DIR, 'dev.csv')
-BLIND_TEST_PATH = os.path.join(BASE_DIR, 'blind_test.csv')
+# CORRECTED: Changed to the actual uploaded filename
+BLIND_TEST_PATH = os.path.join(BASE_DIR, 'blind_test_data.csv')
 
 # Submission and model output paths
 SUBMISSION_FILE_NAME = "prediction.csv"
 SUBMISSION_PATH = os.path.join(BASE_DIR, SUBMISSION_FILE_NAME)
 ZIPPED_SUBMISSION_PATH = os.path.join(BASE_DIR, "prediction.zip")
-OUTPUT_DIR = os.path.join(BASE_DIR, "results_classification_model") # Checkpoints will be saved here
+OUTPUT_DIR = os.path.join(BASE_DIR, "results_classification_model")
 
 # =====================================================================================
 # 2. DATA LOADING
@@ -65,19 +60,18 @@ def load_data():
     """
     print(f"--- Loading BAREC Data from: {BASE_DIR} ---")
     try:
-        # Load the datasets, which are one sentence per row
         train_df = pd.read_csv(BAREC_TRAIN_PATH)
         val_df = pd.read_csv(BAREC_DEV_PATH)
         blind_test_df = pd.read_csv(BLIND_TEST_PATH)
 
         # --- Process Training and Validation Data ---
-        # Select the text and label columns, and rename them for consistency
-        train_df = train_df[['Sentence', 'Readability_Level_19']].rename(columns={'Sentence': 'text', 'Readability_Level_19': 'label'})
-        val_df = val_df[['Sentence', 'Readability_Level_19']].rename(columns={'Sentence': 'text', 'Readability_Level_19': 'label'})
+        # CORRECTED: Changed 'Sentence' to 'Sentences'
+        train_df = train_df[['Sentences', 'Readability_Level_19']].rename(columns={'Sentences': 'text', 'Readability_Level_19': 'label'})
+        val_df = val_df[['Sentences', 'Readability_Level_19']].rename(columns={'Sentences': 'text', 'Readability_Level_19': 'label'})
 
         # --- Process Blind Test Data ---
-        # The 'Document' column is the identifier needed for aggregation
-        blind_test_df = blind_test_df[['Sentence', 'Document']].rename(columns={'Sentence': 'text', 'Document': 'doc_id'})
+        # CORRECTED: Changed 'Sentence' to 'Sentences'
+        blind_test_df = blind_test_df[['Sentences', 'Document']].rename(columns={'Sentences': 'text', 'Document': 'doc_id'})
 
         # Preprocess text
         print("Preprocessing text data...")
@@ -91,7 +85,7 @@ def load_data():
         train_df = train_df.sample(frac=1, random_state=RANDOM_STATE).reset_index(drop=True)
 
     except FileNotFoundError as e:
-        print(f"❗️ ERROR: {e}. Make sure train.csv, dev.csv, and blind_test.csv are in your '{BASE_DIR}' folder in Google Drive.")
+        print(f"❗️ ERROR: {e}. Make sure train.csv, dev.csv, and blind_test_data.csv are in your '{BASE_DIR}' folder.")
         return None, None, None
     except KeyError as e:
         print(f"❗️ ERROR: A required column was not found: {e}. Please check the CSV file format.")
@@ -105,9 +99,11 @@ def load_data():
 
 # Execute loading function
 train_df, val_df, blind_test_df = load_data()
+
+# Stop execution if data loading failed to prevent further errors
 if train_df is None:
-    # Stop execution if data loading fails
-    exit()
+    print("\nExecution stopped due to data loading errors.")
+    sys.exit()
 
 # =====================================================================================
 # 3. SIMPLIFIED MODEL, DATASET, AND TRAINER
@@ -131,7 +127,6 @@ class ReadabilityModel(nn.Module):
 
     def forward(self, input_ids, attention_mask, labels=None):
         transformer_outputs = self.transformer(input_ids=input_ids, attention_mask=attention_mask)
-        # Use the [CLS] token's embedding for classification
         cls_embedding = transformer_outputs.last_hidden_state[:, 0, :]
         logits = self.head(cls_embedding)
         loss = None
@@ -150,7 +145,6 @@ class ReadabilityDataset(TorchDataset):
     def __getitem__(self, idx):
         item = {key: torch.tensor(val[idx]) for key, val in self.encodings.items()}
         if self.labels is not None:
-            # Labels are 1-19, so we subtract 1 to make them 0-18 for CrossEntropyLoss
             item['labels'] = torch.tensor(self.labels[idx] - 1, dtype=torch.long)
         return item
 
@@ -170,7 +164,6 @@ def compute_metrics(p):
 # =====================================================================================
 print("\n===== PREPARING FOR CLASSIFICATION TRAINING RUN =====\n")
 
-# Free up memory before training
 gc.collect()
 torch.cuda.empty_cache()
 
@@ -219,12 +212,10 @@ print("\n===== GENERATING CLASSIFICATION PREDICTIONS ON THE BLIND TEST SET =====
 predictions = trainer.predict(blind_test_dataset)
 test_logits = predictions.predictions
 
-# Get the predicted class (0-18) and add 1 to map it back to the original label (1-19)
 sentence_level_preds = np.argmax(test_logits, axis=1) + 1
 blind_test_df['prediction'] = sentence_level_preds
 
 print("Aggregating sentence predictions to document-level using MAX rule...")
-# Group by document ID and take the max prediction as the document-level readability
 doc_level_preds = blind_test_df.groupby('doc_id')['prediction'].max()
 
 submission_df = pd.DataFrame({
@@ -238,8 +229,9 @@ submission_df.to_csv(SUBMISSION_PATH, index=False)
 print(f"\n===== CREATING SUBMISSION ZIP FILE =====\n")
 print(f"Compressing '{SUBMISSION_FILE_NAME}' into '{ZIPPED_SUBMISSION_PATH}'...")
 with zipfile.ZipFile(ZIPPED_SUBMISSION_PATH, 'w', zipfile.ZIP_DEFLATED) as zipf:
-    # The arcname parameter ensures the file inside the zip doesn't have the directory structure.
     zipf.write(SUBMISSION_PATH, arcname=os.path.basename(SUBMISSION_PATH))
 
 print(f"Submission file '{os.path.basename(ZIPPED_SUBMISSION_PATH)}' created successfully in '{BASE_DIR}'.")
 print("\n--- Script Finished ---")
+
+
