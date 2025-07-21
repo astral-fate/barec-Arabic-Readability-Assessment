@@ -74,7 +74,7 @@ def load_training_and_validation_data():
         # Process and rename columns for consistency
         train_df = train_df[['Sentence', 'Readability_Level_19']].rename(columns={'Sentence': 'text', 'Readability_Level_19': 'label'})
         val_df = val_df[['Sentence', 'Readability_Level_19']].rename(columns={'Sentence': 'text', 'Readability_Level_19': 'label'})
-        
+
         # Explode into sentences (if needed, though files might be sentence-level already)
         train_df = train_df.assign(text=train_df['text'].str.split('\n')).explode('text').reset_index(drop=True)
         val_df = val_df.assign(text=val_df['text'].str.split('\n')).explode('text').reset_index(drop=True)
@@ -163,13 +163,13 @@ def get_lexical_features(text, lexicon):
     # If lexicon wasn't loaded, return a vector of zeros.
     if not lexicon:
         return [0.0] * 7
-        
+
     words = str(text).split()
     if not words: return [0.0] * 7
-    
+
     # Get difficulty score for each word, default to 3.0 (neutral) if not in lexicon
     word_difficulties = [lexicon.get(word, 3.0) for word in words]
-    
+
     features = [
         float(len(text)),                                       # Feature 1: Character count
         float(len(words)),                                      # Feature 2: Word count
@@ -209,12 +209,12 @@ class HybridReadabilityModel(nn.Module):
         super(HybridReadabilityModel, self).__init__()
         self.transformer = AutoModel.from_pretrained(model_name)
         transformer_output_dim = self.transformer.config.hidden_size
-        
+
         # Head combines transformer output with engineered features
         self.head = nn.Sequential(
             nn.Linear(transformer_output_dim + num_extra_features, 512),
-            nn.BatchNorm1d(512), 
-            nn.ReLU(), 
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
             nn.Dropout(0.3),
             nn.Linear(512, num_labels)
         )
@@ -224,16 +224,16 @@ class HybridReadabilityModel(nn.Module):
         # Get embeddings from the transformer model
         transformer_outputs = self.transformer(input_ids=input_ids, attention_mask=attention_mask)
         cls_embedding = transformer_outputs.last_hidden_state[:, 0, :] # Use the [CLS] token's embedding
-        
+
         # Concatenate text embedding with numerical features
         combined_features = torch.cat([cls_embedding, numerical_features], dim=1)
-        
+
         logits = self.head(combined_features)
-        
+
         loss = None
         if labels is not None:
             loss = self.loss_fn(logits, labels)
-        
+
         return (loss, logits) if loss is not None else logits
 
 class ReadabilityDataset(TorchDataset):
@@ -242,7 +242,7 @@ class ReadabilityDataset(TorchDataset):
         self.encodings = tokenizer(texts, truncation=True, padding="max_length", max_length=256)
         self.features = features
         self.labels = labels
-        
+
     def __getitem__(self, idx):
         # Get tokenized text
         item = {key: torch.tensor(val[idx]) for key, val in self.encodings.items()}
@@ -253,7 +253,7 @@ class ReadabilityDataset(TorchDataset):
             # Labels are 1-19, model expects 0-18
             item['labels'] = torch.tensor(self.labels[idx] - 1, dtype=torch.long)
         return item
-        
+
     def __len__(self):
         return len(self.features)
 
@@ -306,8 +306,7 @@ trainer = Trainer(
     train_dataset=train_dataset,
     eval_dataset=val_dataset,
     compute_metrics=compute_metrics,
-    callbacks=[EarlyStoppingCallback(early_stopping_patience=2, S
-                                     )] # Stop if QWK doesn't improve for 2 epochs
+    callbacks=[EarlyStoppingCallback(early_stopping_patience=2)] # Removed the extra 'S'
 )
 
 print("Starting model training...")
