@@ -46,7 +46,6 @@ BAREC_TRAIN_PATH = 'train.csv'
 BAREC_DEV_PATH = 'dev.csv'
 BLIND_TEST_PATH = 'blind_test_data.csv'
 
-
 # Submission file paths
 SUBMISSION_FILE_NAME = "sent_prediction"
 SUBMISSION_PATH = os.path.join(BASE_DIR, SUBMISSION_FILE_NAME)
@@ -54,7 +53,7 @@ ZIPPED_SUBMISSION_PATH = os.path.join(BASE_DIR, f"{SUBMISSION_FILE_NAME}.zip")
 
 
 # =====================================================================================
-# 3. DATA LOADING
+# 3. DATA LOADING AND PREPROCESSING
 # =====================================================================================
 
 def load_training_and_validation_data():
@@ -63,7 +62,6 @@ def load_training_and_validation_data():
     try:
         train_df = pd.read_csv(BAREC_TRAIN_PATH)
         val_df = pd.read_csv(BAREC_DEV_PATH)
-        # ❗️ CORRECTED 'Sentences' to 'Sentence'
         train_df = train_df[['Sentence', 'Readability_Level_19']].rename(columns={'Sentence': 'text', 'Readability_Level_19': 'label'})
         val_df = val_df[['Sentence', 'Readability_Level_19']].rename(columns={'Sentence': 'text', 'Readability_Level_19': 'label'})
     except (FileNotFoundError, KeyError) as e:
@@ -76,9 +74,6 @@ def load_training_and_validation_data():
     train_df.dropna(subset=['text'], inplace=True)
     val_df.dropna(subset=['text'], inplace=True)
     print(f"Exploded into {len(train_df)} training sentences and {len(val_df)} validation sentences.")
-
-    # REMOVED: The section for augmenting with the SAMER Corpus has been deleted.
-
     return train_df, val_df
 
 def load_blind_test_data(file_path):
@@ -86,7 +81,6 @@ def load_blind_test_data(file_path):
     print(f"\n--- Loading Blind Test Data from local file: {file_path} ---")
     try:
         doc_test_df = pd.read_csv(file_path)
-        # ❗️ CORRECTED 'Document' to 'Sentence' for the text column
         doc_test_df = doc_test_df.rename(columns={'ID': 'doc_id', 'Sentence': 'text'})
         print(f"Loaded {len(doc_test_df)} documents from the blind test file.")
 
@@ -111,23 +105,15 @@ train_df['text'] = train_df['text'].apply(arabert_preprocessor.preprocess)
 val_df['text'] = val_df['text'].apply(arabert_preprocessor.preprocess)
 test_df['text'] = test_df['text'].apply(arabert_preprocessor.preprocess)
 
-# =====================================================================================
-# 4. REMOVED FEATURE ENGINEERING SECTION
-# =====================================================================================
-# The entire section for loading the SAMER Lexicon and creating lexical features
-# has been removed as per your request.
-
 
 # =====================================================================================
-# 5. SIMPLIFIED MODEL AND DATASET
+# 5. MODEL AND DATASET DEFINITION
 # =====================================================================================
-# MODIFICATION: Renamed to 'SimpleReadabilityModel' and removed feature handling.
 class SimpleReadabilityModel(nn.Module):
     def __init__(self, model_name, num_labels):
         super().__init__()
         self.transformer = AutoModel.from_pretrained(model_name)
         transformer_output_dim = self.transformer.config.hidden_size
-        # MODIFICATION: The classification head now only takes the transformer output.
         self.head = nn.Sequential(
             nn.Linear(transformer_output_dim, 512),
             nn.BatchNorm1d(512), nn.ReLU(), nn.Dropout(0.3),
@@ -135,25 +121,21 @@ class SimpleReadabilityModel(nn.Module):
         )
         self.loss_fn = nn.CrossEntropyLoss()
 
-    # MODIFICATION: The forward pass no longer accepts 'numerical_features'.
     def forward(self, input_ids, attention_mask, labels=None):
         transformer_outputs = self.transformer(input_ids=input_ids, attention_mask=attention_mask)
         cls_embedding = transformer_outputs.last_hidden_state[:, 0, :]
-        # MODIFICATION: The 'torch.cat' for combining features has been removed.
         logits = self.head(cls_embedding)
         loss = None
         if labels is not None:
             loss = self.loss_fn(logits, labels)
         return (loss, logits) if loss is not None else logits
 
-# MODIFICATION: The dataset class no longer handles a 'features' list.
 class ReadabilityDataset(TorchDataset):
     def __init__(self, texts, labels=None):
         self.encodings = tokenizer(texts, truncation=True, padding="max_length", max_length=256)
         self.labels = labels
     def __getitem__(self, idx):
         item = {key: torch.tensor(val[idx]) for key, val in self.encodings.items()}
-        # MODIFICATION: The line for adding 'numerical_features' has been removed.
         if self.labels is not None:
             item['labels'] = torch.tensor(self.labels[idx] - 1, dtype=torch.long)
         return item
@@ -164,26 +146,33 @@ def compute_metrics(p):
     preds = np.argmax(p.predictions, axis=1)
     return {"qwk": cohen_kappa_score(p.label_ids, preds, weights='quadratic')}
 
+
 # =====================================================================================
-# 6. TRAINING AND PREDICTION
+# 6. MODIFICATION: DIRECTLY RESUME TRAINING FROM A KNOWN CHECKPOINT
 # =====================================================================================
-print("\n===== PREPARING FOR TRAINING AND PREDICTION =====\n")
+print("\n===== ✨ RESUMING TRAINING FROM A SPECIFIC CHECKPOINT =====\n")
 
 # --- Create Datasets ---
-# MODIFICATION: The datasets are now created without the 'features' lists.
 train_dataset = ReadabilityDataset(train_df['text'].tolist(), train_df['label'].tolist())
 val_dataset = ReadabilityDataset(val_df['text'].tolist(), val_df['label'].tolist())
 test_dataset = ReadabilityDataset(test_df['text'].tolist())
 
-# --- Initialize Model and Trainer ---
-# MODIFICATION: Instantiating the new 'SimpleReadabilityModel'.
+# --- MANUALLY DEFINE THE CHECKPOINT PATH ---
+# This is the most important change. We are providing the exact path.
+checkpoint_path = os.path.join(BASE_DIR, "results_simple_model/checkpoint-10284")
+print(f"Will resume training from: {checkpoint_path}")
+
+# --- Initialize Model ---
+# We still initialize the model architecture, its weights will be loaded from the checkpoint.
 model = SimpleReadabilityModel(MODEL_NAME, num_labels=NUM_LABELS)
+
+# --- Define Training Arguments ---
 training_args = TrainingArguments(
-    output_dir=os.path.join(BASE_DIR, "results_simple_model"),
-    num_train_epochs=3,
+    output_dir=os.path.join(BASE_DIR, "results_resumed_training"), # New directory for new logs
+    num_train_epochs=6,  # Fine-tune for another 3 epochs as requested
     per_device_train_batch_size=16,
     per_device_eval_batch_size=32,
-    learning_rate=2e-5,
+    learning_rate=1e-5,
     warmup_ratio=0.1,
     weight_decay=0.01,
     logging_steps=100,
@@ -196,6 +185,8 @@ training_args = TrainingArguments(
     fp16=torch.cuda.is_available(),
     report_to="none"
 )
+
+# --- Initialize Trainer ---
 trainer = Trainer(
     model=model,
     args=training_args,
@@ -205,13 +196,19 @@ trainer = Trainer(
     callbacks=[EarlyStoppingCallback(early_stopping_patience=2)]
 )
 
-# --- Train ---
-print("Starting model training...")
-trainer.train()
-print("Training finished.")
+# --- Resume training from the specified checkpoint ---
+# The initial training phase has been removed entirely.
+trainer.train(resume_from_checkpoint=checkpoint_path)
+print("Resumed training finished.")
 
-# --- Predict ---
-print("\nGenerating predictions on the test set...")
+
+# =====================================================================================
+# 8. FINAL PREDICTION AND SUBMISSION
+# =====================================================================================
+print("\n===== 🏆 FINAL PREDICTION AND SUBMISSION =====\n")
+
+# --- Predict using the final, fine-tuned model ---
+print("Generating predictions on the test set...")
 predictions = trainer.predict(test_dataset)
 sentence_level_preds = np.argmax(predictions.predictions, axis=1) + 1
 test_df['prediction'] = sentence_level_preds
