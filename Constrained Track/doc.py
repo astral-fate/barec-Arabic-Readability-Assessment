@@ -39,9 +39,6 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 RANDOM_STATE = 42
 NUM_LABELS = 19
 
-# REMOVED: The Hugging Face token is no longer needed.
-# HF_TOKEN = "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"
-
 # --- File Paths in Google Drive ---
 DRIVE_MOUNT_PATH = "/content/drive/MyDrive/"
 PROJECT_FOLDER = "BAREC_Competition"
