@@ -126,3 +126,8 @@ dataset: https://huggingface.co/collections/CAMeL-Lab/readability-6846ed8acb652c
 o https://camel.abudhabi.nyu.edu/samer-simplification-corpus/
 https://camel.abudhabi.nyu.edu/samer-readability-lexicon/
 
+
+# refrences
+
+https://arbml.github.io/masader/search
+
