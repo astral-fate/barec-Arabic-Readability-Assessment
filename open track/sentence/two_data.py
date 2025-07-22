@@ -20,14 +20,14 @@ from google.colab import drive
 warnings.filterwarnings("ignore")
 
 # --- MOUNT GOOGLE DRIVE ---
-drive.mount('/content/drive')
+drive.mount('/content/drive', force_remount=True)
 
 # --- CONFIGURATION ---
 DRIVE_PATH = '/content/drive/MyDrive/ArabicReadabilityProject/'
 PROCESSED_DATA_PATH = DRIVE_PATH + 'processed_training_data.csv'
 BLIND_TEST_PATH = DRIVE_PATH + 'sentnse_blind_test.csv'
 SUBMISSION_PATH = DRIVE_PATH + 'submission.csv'
-RESULTS_PATH = DRIVE_PATH + 'results_new' # ✨ Using a new folder to ensure clean checkpoints
+RESULTS_PATH = DRIVE_PATH + 'results_new'
 LOGS_PATH = DRIVE_PATH + 'logs_new'
 
 # Create directories if they don't exist to prevent errors
@@ -96,7 +96,6 @@ if __name__ == '__main__':
         MODEL_NAME, num_labels=NUM_LABELS, ignore_mismatched_sizes=True
     )
 
-    # ✨ This setup correctly saves all necessary files, including trainer_state.json
     training_args = TrainingArguments(
         output_dir=RESULTS_PATH,
         num_train_epochs=3,
@@ -108,10 +107,11 @@ if __name__ == '__main__':
         logging_dir=LOGS_PATH,
         logging_steps=100,
         eval_strategy="epoch",
-        save_strategy="epoch", # This ensures a full save at the end of each epoch
+        save_strategy="epoch",
         load_best_model_at_end=True,
         metric_for_best_model="qwk",
-        greater_is_better=True
+        greater_is_better=True,
+        report_to="wandb"
     )
 
     trainer = Trainer(
@@ -123,12 +123,9 @@ if __name__ == '__main__':
     )
 
     print("\n--- 🚀 Starting or Resuming Model Training ---")
-    
-    # ✨ This logic correctly resumes from a complete checkpoint if one exists.
-    # It will start fresh otherwise, creating new, complete checkpoints.
+
     latest_checkpoint = None
     if os.path.isdir(training_args.output_dir):
-        # Find the latest checkpoint in the output directory
         checkpoints = [d for d in os.listdir(training_args.output_dir) if d.startswith('checkpoint-')]
         if checkpoints:
             latest_checkpoint_num = max([int(c.split('-')[1]) for c in checkpoints])
@@ -145,8 +142,22 @@ if __name__ == '__main__':
 
     print(f"\n--- 🏆 Predicting on Blind Test Set: {BLIND_TEST_PATH} ---")
     try:
-        test_df = pd.read_csv(BLIND_TEST_PATH, sep='\t')
-        test_texts = test_df['Text'].tolist()
+        # Using robust loading with encoding and column cleaning
+        test_df = pd.read_csv(BLIND_TEST_PATH, encoding='utf-8-sig')
+        test_df.columns = test_df.columns.str.strip()
+        
+        # For debugging, let's print the columns pandas actually sees.
+        print(f"Columns found in file: {test_df.columns.tolist()}")
+
+        # ✨ FIX: Changed column name from 'sentence' to 'Sentence' to match the CSV file header exactly (case-sensitive).
+        test_texts = test_df['Sentence'].tolist() # <-- THE FIX IS HERE
+        
+        # Move the success message inside the try block.
+        print("✅ Blind test data loaded successfully.")
+
+    except KeyError:
+        print(f"❗️ KEY ERROR: Could not find the 'Sentence' column. Please verify the column name and file format.")
+        exit()
     except Exception as e:
         print(f"❗️ ERROR: Could not load the blind test file. Details: {e}")
         exit()
@@ -156,6 +167,7 @@ if __name__ == '__main__':
     predictions = trainer.predict(test_dataset)
     predicted_labels = predictions.predictions.argmax(axis=1)
 
-    submission_df = pd.DataFrame({'id': test_df['id'], 'label': predicted_labels})
+    # Note: Ensure your blind test CSV also has a column named 'ID' (capitalized) for the submission file.
+    submission_df = pd.DataFrame({'id': test_df['ID'], 'label': predicted_labels})
     submission_df.to_csv(SUBMISSION_PATH, index=False)
     print(f"--- 🎉 Submission file '{SUBMISSION_PATH}' created successfully! ---")
