@@ -131,4 +131,6 @@ https://camel.abudhabi.nyu.edu/samer-readability-lexicon/
 
 https://arbml.github.io/masader/search
 
+https://github.com/drelhaj/OsmanReadability?tab=readme-ov-file 
+
 https://huggingface.co/aubmindlab/bert-base-arabertv2
