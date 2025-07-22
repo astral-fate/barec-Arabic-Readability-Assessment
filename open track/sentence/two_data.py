@@ -108,4 +108,47 @@ if __name__ == '__main__':
         evaluation_strategy="epoch",
         save_strategy="epoch",
         load_best_model_at_end=True,
-        metric_for_best_model="qwk",
+        metric_for_best_model="qwk",  # Use QWK to find the best model
+        greater_is_better=True       # Higher QWK is better
+    )
+
+    # ✨ 5. UPDATE TRAINER TO USE QWK
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=train_dataset,
+        eval_dataset=val_dataset,
+        compute_metrics=compute_metrics # Add the metric function
+    )
+
+    print("\n--- 🚀 Starting or Resuming Model Training ---")
+    
+    # ✨ 6. MODIFY TRAIN CALL TO RESUME FROM CHECKPOINT
+    # The Trainer will automatically look for the latest checkpoint in `output_dir`.
+    # `resume_from_checkpoint=True` makes this explicit.
+    # If a checkpoint is found, it resumes. If not, it starts from scratch.
+    if os.path.isdir(training_args.output_dir):
+        print("✅ Checkpoint directory found. Attempting to resume training...")
+        trainer.train(resume_from_checkpoint=True)
+    else:
+        print("✅ No checkpoint found. Starting training from scratch...")
+        trainer.train()
+
+    print("--- ✅ Training Finished ---")
+
+    print(f"\n--- 🏆 Predicting on Blind Test Set: {BLIND_TEST_PATH} ---")
+    try:
+        test_df = pd.read_csv(BLIND_Test_PATH, sep='\t')
+        test_texts = test_df['Text'].tolist()
+    except Exception as e:
+        print(f"❗️ ERROR: Could not load the blind test file. Details: {e}")
+        exit()
+
+    test_dataset = ReadabilityDataset(test_texts, [0] * len(test_texts), tokenizer)
+
+    predictions = trainer.predict(test_dataset)
+    predicted_labels = predictions.predictions.argmax(axis=1)
+
+    submission_df = pd.DataFrame({'id': test_df['id'], 'label': predicted_labels})
+    submission_df.to_csv(SUBMISSION_PATH, index=False)
+    print(f"--- 🎉 Submission file '{SUBMISSION_PATH}' created successfully! ---")
