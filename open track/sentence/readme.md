@@ -42,3 +42,7 @@ grade_to_barec_map = {
 ```
 
 By using this evidence-based mapping, you are ensuring that the labels from your external dataset are accurately aligned with the BAREC task, which should significantly improve your model's performance.
+
+# resouse
+
+https://github.com/DamithDR/arabic-readability-assessment
