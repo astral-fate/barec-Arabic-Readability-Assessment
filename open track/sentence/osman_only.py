@@ -13,6 +13,7 @@ from transformers import (
     Trainer
 )
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import cohen_kappa_score # 🟢 ADDED: For QWK calculation
 import os
 import warnings
 
@@ -22,19 +23,14 @@ warnings.filterwarnings("ignore")
 # 2. CONFIGURATION & FILE PATHS
 # =====================================================================================
 # --- File Paths ---
-# Path to the official training data
 BAREC_TRAIN_PATH = 'train.csv'
-# Path to your external, annotated data
 EXTERNAL_DATA_PATH = 'Annotated_Paper_Dataset.csv'
-# 🔴 UPDATE THIS when the official blind test file is released
-BLIND_TEST_PATH = 'test.csv' 
-# Name of the final submission file
+BLIND_TEST_PATH = 'test.csv'
 SUBMISSION_PATH = 'submission.csv'
+MODEL_OUTPUT_DIR = './results' # 🟢 ADDED: Directory to save model checkpoints
 
 # --- Model Configuration ---
 MODEL_NAME = 'asafaya/bert-base-arabic'
-# The BAREC task has 19 levels, but labels are 1-19.
-# We need 20 labels so that label 19 maps to index 19.
 NUM_LABELS = 20
 
 # =====================================================================================
@@ -54,13 +50,8 @@ def load_and_map_external_data(file_path):
             print(f"❗️ Error: Required columns 'Fine-grained' or 'Text' not found in {file_path}.")
             return None
 
-        # Create the 'label' by extracting the number from the 'Fine-grained' column (e.g., 'G1' -> 1)
         ext_df['label'] = ext_df['Fine-grained'].str.replace('G', '', regex=False).astype(int)
-        
-        # Rename 'Text' column to 'text' for consistency
         ext_df.rename(columns={'Text': 'text'}, inplace=True)
-
-        # Drop invalid rows and keep only the necessary columns
         ext_df.dropna(subset=['text', 'label'], inplace=True)
         ext_df = ext_df[['text', 'label']]
 
@@ -78,10 +69,7 @@ def load_all_training_data(barec_path, external_df=None):
     """
     print("\n--- Loading Original BAREC Training Data ---")
     try:
-        # Load the original BAREC training data
-        train_df = pd.read_csv(barec_path, sep=',') 
-        
-        # 🔴 **FIX for KeyError**: Rename the correct columns to 'text' and 'label'
+        train_df = pd.read_csv(barec_path, sep=',')
         train_df.rename(columns={
             'Sentence': 'text',
             'Readability_Level_19': 'label'
@@ -90,12 +78,10 @@ def load_all_training_data(barec_path, external_df=None):
         train_df = train_df[['text', 'label']]
         print(f"Original BAREC training size: {len(train_df)}")
 
-        # Merge with external data if available
         if external_df is not None:
             train_df = pd.concat([train_df, external_df], ignore_index=True)
             print(f"✅ New combined training size: {len(train_df)}")
             
-        # Split the combined data into training and validation sets
         train_df, val_df = train_test_split(
             train_df, test_size=0.1, random_state=42, stratify=train_df['label']
         )
@@ -140,8 +126,22 @@ class ReadabilityDataset(Dataset):
         }
 
 # =====================================================================================
-# 5. MODEL TRAINING AND PREDICTION
+# 5. METRICS, TRAINING, AND PREDICTION
 # =====================================================================================
+
+# 🟢 ADDED: Function to compute QWK metric
+def compute_metrics(eval_pred):
+    """
+    Computes Quadratic Weighted Kappa (QWK) for the predictions.
+    """
+    predictions, labels = eval_pred
+    preds = predictions.argmax(axis=-1)
+    
+    qwk = cohen_kappa_score(labels, preds, weights='quadratic')
+    
+    return {
+        'qwk': qwk
+    }
 
 # --- Load and Prepare Data ---
 external_data_df = load_and_map_external_data(EXTERNAL_DATA_PATH)
@@ -171,7 +171,7 @@ if train_df is not None:
 
     # --- Define Training Arguments ---
     training_args = TrainingArguments(
-        output_dir='./results',
+        output_dir=MODEL_OUTPUT_DIR, # Use the defined output directory
         num_train_epochs=3,
         per_device_train_batch_size=8,
         per_device_eval_batch_size=8,
@@ -179,11 +179,11 @@ if train_df is not None:
         weight_decay=0.01,
         logging_dir='./logs',
         logging_steps=100,
-        eval_strategy="epoch",
-        save_strategy="epoch",
+        eval_strategy="epoch", # Corrected from eval_strategy
+        save_strategy="epoch",       # Corrected from save_strategy
         load_best_model_at_end=True,
-        metric_for_best_model="eval_loss",
-        greater_is_better=False
+        metric_for_best_model="qwk",   # 🟢 CHANGED: Use QWK to find the best model
+        greater_is_better=True,      # 🟢 CHANGED: Higher QWK is better
     )
 
     # --- Initialize Trainer ---
@@ -192,21 +192,48 @@ if train_df is not None:
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
+        compute_metrics=compute_metrics, # 🟢 ADDED: Pass the metrics function
     )
 
-    # --- Start Training ---
-    print("\n--- 🚀 Starting Model Training ---")
-    trainer.train()
+    # --- Start or Resume Training ---
+    # The Trainer automatically looks for the latest checkpoint in `output_dir`.
+    # To resume, simply run the script again after it has saved a checkpoint.
+    # The `resume_from_checkpoint=True` argument makes this explicit.
+    # If a checkpoint exists, it will resume training from there.
+    # If not, it will start from epoch 0.
+    
+    print("\n--- 🚀 Starting or Resuming Model Training ---")
+    
+    # To explicitly resume from the *last* saved checkpoint:
+    # trainer.train(resume_from_checkpoint=True)
+
+    # To resume from a *specific* best checkpoint if you know its path:
+    checkpoint_path = None
+    if os.path.exists(MODEL_OUTPUT_DIR):
+        # Logic to find the best checkpoint folder (e.g., based on trainer_state.json)
+        # For simplicity, we'll just check if any checkpoint exists
+        checkpoints = [d for d in os.listdir(MODEL_OUTPUT_DIR) if d.startswith('checkpoint-')]
+        if checkpoints:
+            # A simple approach is to find the checkpoint with the highest number
+            latest_checkpoint = max(checkpoints, key=lambda x: int(x.split('-')[1]))
+            checkpoint_path = os.path.join(MODEL_OUTPUT_DIR, latest_checkpoint)
+            print(f"✅ Resuming training from checkpoint: {checkpoint_path}")
+
+    # If checkpoint_path is None, training starts from scratch.
+    # Otherwise, it resumes from the specified checkpoint.
+    trainer.train(resume_from_checkpoint=checkpoint_path)
+    
     print("--- ✅ Training Finished Successfully! ---")
 
     # --- Prediction on the Blind Test Set ---
+    # The trainer automatically loads the best model at the end of training
     print(f"\n--- 🏆 Predicting on the Blind Test Set: {BLIND_TEST_PATH} ---")
     test_df = pd.read_csv(BLIND_TEST_PATH, sep='\t')
-    test_texts = test_df['Text'].tolist() # Use 'Text' column from blind test
+    test_texts = test_df['Text'].tolist()
 
     test_dataset = ReadabilityDataset(
         texts=test_texts,
-        labels=[0] * len(test_texts), # Dummy labels for prediction
+        labels=[0] * len(test_texts), # Dummy labels
         tokenizer=tokenizer
     )
 
