@@ -13,7 +13,7 @@ from transformers import (
     Trainer
 )
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import cohen_kappa_score # 🟢 ADDED: For QWK calculation
+from sklearn.metrics import cohen_kappa_score
 import os
 import warnings
 
@@ -25,9 +25,9 @@ warnings.filterwarnings("ignore")
 # --- File Paths ---
 BAREC_TRAIN_PATH = 'train.csv'
 EXTERNAL_DATA_PATH = 'Annotated_Paper_Dataset.csv'
-BLIND_TEST_PATH = 'test.csv'
+BLIND_TEST_PATH = 'sentnse_blind_test.csv'
 SUBMISSION_PATH = 'submission.csv'
-MODEL_OUTPUT_DIR = './results' # 🟢 ADDED: Directory to save model checkpoints
+MODEL_OUTPUT_DIR = './results'
 
 # --- Model Configuration ---
 MODEL_NAME = 'asafaya/bert-base-arabic'
@@ -129,7 +129,6 @@ class ReadabilityDataset(Dataset):
 # 5. METRICS, TRAINING, AND PREDICTION
 # =====================================================================================
 
-# 🟢 ADDED: Function to compute QWK metric
 def compute_metrics(eval_pred):
     """
     Computes Quadratic Weighted Kappa (QWK) for the predictions.
@@ -171,7 +170,7 @@ if train_df is not None:
 
     # --- Define Training Arguments ---
     training_args = TrainingArguments(
-        output_dir=MODEL_OUTPUT_DIR, # Use the defined output directory
+        output_dir=MODEL_OUTPUT_DIR,
         num_train_epochs=3,
         per_device_train_batch_size=8,
         per_device_eval_batch_size=8,
@@ -179,11 +178,11 @@ if train_df is not None:
         weight_decay=0.01,
         logging_dir='./logs',
         logging_steps=100,
-        eval_strategy="epoch", # Corrected from eval_strategy
-        save_strategy="epoch",       # Corrected from save_strategy
+        eval_strategy="epoch",
+        save_strategy="epoch",
         load_best_model_at_end=True,
-        metric_for_best_model="qwk",   # 🟢 CHANGED: Use QWK to find the best model
-        greater_is_better=True,      # 🟢 CHANGED: Higher QWK is better
+        metric_for_best_model="qwk",
+        greater_is_better=True,
     )
 
     # --- Initialize Trainer ---
@@ -192,59 +191,67 @@ if train_df is not None:
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
-        compute_metrics=compute_metrics, # 🟢 ADDED: Pass the metrics function
+        compute_metrics=compute_metrics,
     )
-
-    # --- Start or Resume Training ---
-    # The Trainer automatically looks for the latest checkpoint in `output_dir`.
-    # To resume, simply run the script again after it has saved a checkpoint.
-    # The `resume_from_checkpoint=True` argument makes this explicit.
-    # If a checkpoint exists, it will resume training from there.
-    # If not, it will start from epoch 0.
     
     print("\n--- 🚀 Starting or Resuming Model Training ---")
     
-    # To explicitly resume from the *last* saved checkpoint:
-    # trainer.train(resume_from_checkpoint=True)
-
-    # To resume from a *specific* best checkpoint if you know its path:
     checkpoint_path = None
     if os.path.exists(MODEL_OUTPUT_DIR):
-        # Logic to find the best checkpoint folder (e.g., based on trainer_state.json)
-        # For simplicity, we'll just check if any checkpoint exists
         checkpoints = [d for d in os.listdir(MODEL_OUTPUT_DIR) if d.startswith('checkpoint-')]
         if checkpoints:
-            # A simple approach is to find the checkpoint with the highest number
             latest_checkpoint = max(checkpoints, key=lambda x: int(x.split('-')[1]))
             checkpoint_path = os.path.join(MODEL_OUTPUT_DIR, latest_checkpoint)
             print(f"✅ Resuming training from checkpoint: {checkpoint_path}")
 
-    # If checkpoint_path is None, training starts from scratch.
-    # Otherwise, it resumes from the specified checkpoint.
     trainer.train(resume_from_checkpoint=checkpoint_path)
     
     print("--- ✅ Training Finished Successfully! ---")
 
+    # =====================================================================================
+    # START OF CORRECTIONS
+    # =====================================================================================
+    
     # --- Prediction on the Blind Test Set ---
     # The trainer automatically loads the best model at the end of training
     print(f"\n--- 🏆 Predicting on the Blind Test Set: {BLIND_TEST_PATH} ---")
-    test_df = pd.read_csv(BLIND_TEST_PATH, sep='\t')
-    test_texts = test_df['Text'].tolist()
+    try:
+       
+        test_df = pd.read_csv(BLIND_TEST_PATH, sep=',')
+        
+        # Use 'Sentence' column instead of 'Text'
+        if 'Sentence' not in test_df.columns:
+            raise KeyError("The test file must contain a 'Sentence' column.")
+        test_texts = test_df['Sentence'].tolist()
 
-    test_dataset = ReadabilityDataset(
-        texts=test_texts,
-        labels=[0] * len(test_texts), # Dummy labels
-        tokenizer=tokenizer
-    )
+        test_dataset = ReadabilityDataset(
+            texts=test_texts,
+            labels=[0] * len(test_texts), # Dummy labels
+            tokenizer=tokenizer
+        )
 
-    predictions = trainer.predict(test_dataset)
-    predicted_labels = predictions.predictions.argmax(axis=1)
+        predictions = trainer.predict(test_dataset)
+        predicted_labels = predictions.predictions.argmax(axis=1)
 
-    # --- Create Submission File ---
-    submission_df = pd.DataFrame({'id': test_df['id'], 'label': predicted_labels})
-    submission_df.to_csv(SUBMISSION_PATH, index=False)
+        # --- Create Submission File ---
+        # Use 'ID' column (uppercase) from test file for submission 'id'
+        if 'ID' not in test_df.columns:
+            raise KeyError("The test file must contain an 'ID' column.")
+        submission_df = pd.DataFrame({'id': test_df['ID'], 'label': predicted_labels})
+        submission_df.to_csv(SUBMISSION_PATH, index=False)
 
-    print(f"--- 🎉 Submission file '{SUBMISSION_PATH}' created successfully! ---")
+        print(f"--- 🎉 Submission file '{SUBMISSION_PATH}' created successfully! ---")
+        
+    except FileNotFoundError:
+        print(f"❗️ Error: The blind test file was not found at {BLIND_TEST_PATH}")
+    except KeyError as e:
+        print(f"❗️ Error: A required column was not found in the test file. {e}")
+    except Exception as e:
+        print(f"❗️ An unexpected error occurred during prediction: {e}")
+
+    # =====================================================================================
+    # END OF CORRECTIONS
+    # =====================================================================================
 
 else:
     print("\n--- ❌ Could not proceed due to data loading errors. Please check file paths and formats. ---")
