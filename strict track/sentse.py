@@ -12,7 +12,7 @@ import torch.nn as nn
 import zipfile
 from sklearn.metrics import cohen_kappa_score
 from torch.utils.data import Dataset as TorchDataset
-from transformers import AutoTokenizer, AutoModel, TrainingArguments, Trainer, EarlyStoppingCallback
+from transformers import AutoTokenizer, AutoModel, TrainingArguments, Trainer, EarlyStoppingCallback, AutoConfig
 from arabert.preprocess import ArabertPreprocessor
 from google.colab import drive
 
@@ -33,7 +33,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
 # --- Training & Classification ---
 RANDOM_STATE = 42
-NUM_LABELS = 19
+NUM_LABELS = 19 # This will be updated dynamically in the loading function
 
 # --- File Paths ---
 DRIVE_MOUNT_PATH = "/content/drive/MyDrive/"
@@ -56,24 +56,40 @@ ZIPPED_SUBMISSION_PATH = os.path.join(BASE_DIR, f"{SUBMISSION_FILE_NAME}.zip")
 # 3. DATA LOADING AND PREPROCESSING
 # =====================================================================================
 
- 
 def load_training_and_validation_data():
     """Loads and prepares training and validation data from local CSVs."""
+    global NUM_LABELS # Allow modification of the global variable
     print("--- Loading BAREC Data from CSV files ---")
     try:
         train_df = pd.read_csv(BAREC_TRAIN_PATH)
         val_df = pd.read_csv(BAREC_DEV_PATH)
-        
-        # --- CORRECTED SECTION ---
-        # Use the actual column names from your CSV file: 'Sentences' and 'Text_Class'
         train_df = train_df[['Sentences', 'Text_Class']].rename(columns={'Sentences': 'text', 'Text_Class': 'label'})
         val_df = val_df[['Sentences', 'Text_Class']].rename(columns={'Sentences': 'text', 'Text_Class': 'label'})
-        # --- END OF CORRECTION ---
+
+        # FINAL FIX: Perform Label Encoding for string-based categorical labels
+        print("Performing label encoding on categorical text labels...")
+        all_labels = pd.concat([train_df['label'], val_df['label']]).dropna().unique()
+        label_to_int_map = {label: i for i, label in enumerate(all_labels)}
+        
+        # Update the global number of labels based on what was found in the data
+        NUM_LABELS = len(label_to_int_map)
+        print(f"Dynamically found {NUM_LABELS} unique classes.")
+
+        # Apply the mapping to convert string labels to integers
+        train_df['label'] = train_df['label'].map(label_to_int_map)
+        val_df['label'] = val_df['label'].map(label_to_int_map)
+        
+        # Drop rows where a label could not be mapped (if any)
+        train_df.dropna(subset=['label'], inplace=True)
+        val_df.dropna(subset=['label'], inplace=True)
+        # Convert label column to integer type after mapping
+        train_df['label'] = train_df['label'].astype(int)
+        val_df['label'] = val_df['label'].astype(int)
+
 
     except (FileNotFoundError, KeyError) as e:
         print(f"❗️ ERROR loading local CSVs: {e}")
         return None, None
-
     print(f"Loaded {len(train_df)} training documents and {len(val_df)} validation documents.")
     train_df = train_df.assign(text=train_df['text'].str.split('\n')).explode('text').reset_index(drop=True)
     val_df = val_df.assign(text=val_df['text'].str.split('\n')).explode('text').reset_index(drop=True)
@@ -81,6 +97,7 @@ def load_training_and_validation_data():
     val_df.dropna(subset=['text'], inplace=True)
     print(f"Exploded into {len(train_df)} training sentences and {len(val_df)} validation sentences.")
     return train_df, val_df
+
 def load_blind_test_data(file_path):
     """Loads and prepares the blind test set from a local CSV file."""
     print(f"\n--- Loading Blind Test Data from local file: {file_path} ---")
@@ -88,7 +105,6 @@ def load_blind_test_data(file_path):
         doc_test_df = pd.read_csv(file_path)
         doc_test_df = doc_test_df.rename(columns={'ID': 'doc_id', 'Sentence': 'text'})
         print(f"Loaded {len(doc_test_df)} documents from the blind test file.")
-
         sentence_test_df = doc_test_df.assign(text=doc_test_df['text'].str.split('\n')).explode('text')
         sentence_test_df.dropna(subset=['text'], inplace=True)
         print(f"Exploded into {len(sentence_test_df)} sentences for prediction.")
@@ -115,9 +131,9 @@ test_df['text'] = test_df['text'].apply(arabert_preprocessor.preprocess)
 # 5. MODEL AND DATASET DEFINITION
 # =====================================================================================
 class SimpleReadabilityModel(nn.Module):
-    def __init__(self, model_name, num_labels):
+    def __init__(self, transformer_model, num_labels):
         super().__init__()
-        self.transformer = AutoModel.from_pretrained(model_name)
+        self.transformer = transformer_model
         transformer_output_dim = self.transformer.config.hidden_size
         self.head = nn.Sequential(
             nn.Linear(transformer_output_dim, 512),
@@ -142,7 +158,8 @@ class ReadabilityDataset(TorchDataset):
     def __getitem__(self, idx):
         item = {key: torch.tensor(val[idx]) for key, val in self.encodings.items()}
         if self.labels is not None:
-            item['labels'] = torch.tensor(self.labels[idx] - 1, dtype=torch.long)
+            # CORRECTED: No longer subtract 1, as labels are now 0-indexed from the mapping
+            item['labels'] = torch.tensor(self.labels[idx], dtype=torch.long)
         return item
     def __len__(self):
         return len(self.encodings['input_ids'])
@@ -152,29 +169,39 @@ def compute_metrics(p):
     return {"qwk": cohen_kappa_score(p.label_ids, preds, weights='quadratic')}
 
 
- 
 # =====================================================================================
-# 6. MODIFICATION: LOAD WEIGHTS AND START NEW TRAINING
+# 6. LOAD MODEL: TRY CHECKPOINT, OR START FROM SCRATCH
 # =====================================================================================
-print("\n===== ✨ LOADING WEIGHTS FROM CHECKPOINT TO START NEW TRAINING =====\n")
+print("\n===== ✨ LOADING MODEL =====\n")
 
 # --- Create Datasets ---
 train_dataset = ReadabilityDataset(train_df['text'].tolist(), train_df['label'].tolist())
 val_dataset = ReadabilityDataset(val_df['text'].tolist(), val_df['label'].tolist())
 test_dataset = ReadabilityDataset(test_df['text'].tolist())
 
-# --- MANUALLY DEFINE THE CHECKPOINT PATH ---
+# --- Define Checkpoint Path ---
 checkpoint_path = os.path.join(BASE_DIR, "results_simple_model/checkpoint-10284")
-print(f"Loading model weights from: {checkpoint_path}")
 
-# --- Initialize Model FROM THE CHECKPOINT PATH ---
-# This loads the weights you trained previously.
-model = SimpleReadabilityModel(checkpoint_path, num_labels=NUM_LABELS)
+# --- TRY/EXCEPT BLOCK FOR ROBUST LOADING ---
+try:
+    # Attempt to load from the local checkpoint
+    print(f"Attempting to load model from local checkpoint: {checkpoint_path}")
+    config = AutoConfig.from_pretrained(checkpoint_path)
+    transformer_model = AutoModel.from_pretrained(checkpoint_path, config=config)
+    print("✅ Successfully loaded model from local checkpoint.")
+except Exception as e:
+    # If it fails, fall back to the base model from Hugging Face Hub
+    print(f"❗️ Failed to load from checkpoint: {e}")
+    print(f"✨ Starting training from scratch using base model: {MODEL_NAME}")
+    transformer_model = AutoModel.from_pretrained(MODEL_NAME)
+
+# --- Instantiate your custom model with the loaded transformer ---
+# NUM_LABELS is now dynamically set, so this will be correct.
+model = SimpleReadabilityModel(transformer_model, num_labels=NUM_LABELS)
 
 # --- Define Training Arguments ---
-# (TrainingArguments remain the same)
 training_args = TrainingArguments(
-    output_dir=os.path.join(BASE_DIR, "results_resumed_training"), # New directory for new logs
+    output_dir=os.path.join(BASE_DIR, "results_training"),
     num_train_epochs=6,
     per_device_train_batch_size=16,
     per_device_eval_batch_size=32,
@@ -193,7 +220,6 @@ training_args = TrainingArguments(
 )
 
 # --- Initialize Trainer ---
-# (Trainer initialization remains the same)
 trainer = Trainer(
     model=model,
     args=training_args,
@@ -203,10 +229,10 @@ trainer = Trainer(
     callbacks=[EarlyStoppingCallback(early_stopping_patience=2)]
 )
 
-# --- Start a NEW training run (without resuming) ---
-# The model already has the weights, so this will fine-tune it further.
+# --- Start the training run ---
 trainer.train()
-print("Fine-tuning from checkpoint finished.")
+print("Training finished.")
+
 
 # =====================================================================================
 # 8. FINAL PREDICTION AND SUBMISSION
@@ -233,6 +259,3 @@ with zipfile.ZipFile(ZIPPED_SUBMISSION_PATH, 'w', zipfile.ZIP_DEFLATED) as zipf:
 
 print(f"Submission file '{os.path.basename(ZIPPED_SUBMISSION_PATH)}' created successfully.")
 print("\n--- Script Finished ---")
-
-
-
