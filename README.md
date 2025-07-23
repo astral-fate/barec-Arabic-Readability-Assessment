@@ -134,3 +134,5 @@ https://arbml.github.io/masader/search
 https://github.com/drelhaj/OsmanReadability?tab=readme-ov-file 
 
 https://huggingface.co/aubmindlab/bert-base-arabertv2
+
+https://github.com/CAMeL-Lab/barec_analyzer/tree/main
