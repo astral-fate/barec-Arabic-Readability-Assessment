@@ -1,20 +1,23 @@
 # =====================================================================================
 # 0. INSTALLATIONS
 # =====================================================================================
-# This will install all necessary libraries quietly.
-# !pip install transformers[torch] pandas scikit-learn arabert accelerate -q
 
 import pandas as pd
 import numpy as np
 import os
 import torch
-import torch.nn as nn
-import zipfile
 from sklearn.metrics import cohen_kappa_score
 from torch.utils.data import Dataset as TorchDataset
-from transformers import AutoTokenizer, AutoModel, TrainingArguments, Trainer, EarlyStoppingCallback, AutoConfig
+from transformers import (
+    AutoTokenizer,
+    AutoModelForSequenceClassification,
+    TrainingArguments,
+    Trainer,
+    EarlyStoppingCallback
+)
 from arabert.preprocess import ArabertPreprocessor
 from google.colab import drive
+import zipfile
 
 # =====================================================================================
 # 1. SETUP AND GOOGLE DRIVE INTEGRATION
@@ -26,131 +29,71 @@ print("Google Drive mounted successfully.")
 # =====================================================================================
 # 2. CONFIGURATION
 # =====================================================================================
-# --- Model & Preprocessing ---
 MODEL_NAME = "aubmindlab/bert-base-arabertv2"
-arabert_preprocessor = ArabertPreprocessor(model_name=MODEL_NAME)
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-
-# --- Training & Classification ---
-RANDOM_STATE = 42
-NUM_LABELS = 19 # This will be updated dynamically in the loading function
-
-# --- File Paths ---
 DRIVE_MOUNT_PATH = "/content/drive/MyDrive/"
 PROJECT_FOLDER = "BAREC_Competition"
 BASE_DIR = os.path.join(DRIVE_MOUNT_PATH, PROJECT_FOLDER)
-os.makedirs(BASE_DIR, exist_ok=True)
+CHECKPOINT_DIR = os.path.join(BASE_DIR, "results_training_19_class")
+os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
-# Data paths
+# File Paths
 BAREC_TRAIN_PATH = 'train.csv'
 BAREC_DEV_PATH = 'dev.csv'
 BLIND_TEST_PATH = 'blind_test_data.csv'
+SUBMISSION_PATH = os.path.join(BASE_DIR, "submission_final_19_class.csv")
+ZIPPED_SUBMISSION_PATH = os.path.join(BASE_DIR, "submission_final_19_class.zip")
 
-# Submission file paths
-SUBMISSION_FILE_NAME = "sent_prediction"
-SUBMISSION_PATH = os.path.join(BASE_DIR, SUBMISSION_FILE_NAME)
-ZIPPED_SUBMISSION_PATH = os.path.join(BASE_DIR, f"{SUBMISSION_FILE_NAME}.zip")
-
+NUM_LABELS = 19 # Set to the correct number of classes
 
 # =====================================================================================
 # 3. DATA LOADING AND PREPROCESSING
 # =====================================================================================
+arabert_preprocessor = ArabertPreprocessor(model_name=MODEL_NAME)
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
 def load_training_and_validation_data():
-    """Loads and prepares training and validation data from local CSVs."""
-    global NUM_LABELS # Allow modification of the global variable
+    """Loads training and validation data using the correct columns."""
     print("--- Loading BAREC Data from CSV files ---")
     try:
         train_df = pd.read_csv(BAREC_TRAIN_PATH)
         val_df = pd.read_csv(BAREC_DEV_PATH)
-        train_df = train_df[['Sentences', 'Text_Class']].rename(columns={'Sentences': 'text', 'Text_Class': 'label'})
-        val_df = val_df[['Sentences', 'Text_Class']].rename(columns={'Sentences': 'text', 'Text_Class': 'label'})
 
-        # FINAL FIX: Perform Label Encoding for string-based categorical labels
-        print("Performing label encoding on categorical text labels...")
-        all_labels = pd.concat([train_df['label'], val_df['label']]).dropna().unique()
-        label_to_int_map = {label: i for i, label in enumerate(all_labels)}
-        
-        # Update the global number of labels based on what was found in the data
-        NUM_LABELS = len(label_to_int_map)
-        print(f"Dynamically found {NUM_LABELS} unique classes.")
+        # --- CORRECTED: Use 'Sentence' (singular) to match your CSV header ---
+        train_df = train_df[['Sentence', 'Readability_Level_19']].rename(columns={'Sentence': 'text', 'Readability_Level_19': 'label'})
+        val_df = val_df[['Sentence', 'Readability_Level_19']].rename(columns={'Sentence': 'text', 'Readability_Level_19': 'label'})
 
-        # Apply the mapping to convert string labels to integers
-        train_df['label'] = train_df['label'].map(label_to_int_map)
-        val_df['label'] = val_df['label'].map(label_to_int_map)
-        
-        # Drop rows where a label could not be mapped (if any)
-        train_df.dropna(subset=['label'], inplace=True)
-        val_df.dropna(subset=['label'], inplace=True)
-        # Convert label column to integer type after mapping
+        # Drop any rows with missing data
+        train_df.dropna(subset=['text', 'label'], inplace=True)
+        val_df.dropna(subset=['label', 'text'], inplace=True)
+
+        # Ensure labels are integers
         train_df['label'] = train_df['label'].astype(int)
         val_df['label'] = val_df['label'].astype(int)
 
-
-    except (FileNotFoundError, KeyError) as e:
-        print(f"❗️ ERROR loading local CSVs: {e}")
-        return None, None
-    print(f"Loaded {len(train_df)} training documents and {len(val_df)} validation documents.")
-    train_df = train_df.assign(text=train_df['text'].str.split('\n')).explode('text').reset_index(drop=True)
-    val_df = val_df.assign(text=val_df['text'].str.split('\n')).explode('text').reset_index(drop=True)
-    train_df.dropna(subset=['text'], inplace=True)
-    val_df.dropna(subset=['text'], inplace=True)
-    print(f"Exploded into {len(train_df)} training sentences and {len(val_df)} validation sentences.")
-    return train_df, val_df
-
-def load_blind_test_data(file_path):
-    """Loads and prepares the blind test set from a local CSV file."""
-    print(f"\n--- Loading Blind Test Data from local file: {file_path} ---")
-    try:
-        doc_test_df = pd.read_csv(file_path)
-        doc_test_df = doc_test_df.rename(columns={'ID': 'doc_id', 'Sentence': 'text'})
-        print(f"Loaded {len(doc_test_df)} documents from the blind test file.")
-        sentence_test_df = doc_test_df.assign(text=doc_test_df['text'].str.split('\n')).explode('text')
-        sentence_test_df.dropna(subset=['text'], inplace=True)
-        print(f"Exploded into {len(sentence_test_df)} sentences for prediction.")
-        return sentence_test_df
+        # Convert labels from 1-19 to 0-18 for the model
+        train_df['label'] = train_df['label'] - 1
+        val_df['label'] = val_df['label'] - 1
+        
+        print(f"Successfully loaded {len(train_df)} training and {len(val_df)} validation records.")
+        
     except Exception as e:
-        print(f"❗️ ERROR loading blind test file: {e}")
-        return None
+        print(f"❗️ ERROR loading data: {e}")
+        return None, None
+    return train_df, val_df
 
 # --- Execute Data Loading and Preprocessing ---
 train_df, val_df = load_training_and_validation_data()
-test_df = load_blind_test_data(BLIND_TEST_PATH)
-
-if train_df is None or val_df is None or test_df is None:
-    print("\nScript aborted due to data loading errors.")
+if train_df is None:
     exit()
 
-print("\n--- Preprocessing Text ---")
+print("\n--- Preprocessing Text (this may take a moment) ---")
 train_df['text'] = train_df['text'].apply(arabert_preprocessor.preprocess)
 val_df['text'] = val_df['text'].apply(arabert_preprocessor.preprocess)
-test_df['text'] = test_df['text'].apply(arabert_preprocessor.preprocess)
-
+print("Text preprocessing finished.")
 
 # =====================================================================================
-# 5. MODEL AND DATASET DEFINITION
+# 4. DATASET CLASS
 # =====================================================================================
-class SimpleReadabilityModel(nn.Module):
-    def __init__(self, transformer_model, num_labels):
-        super().__init__()
-        self.transformer = transformer_model
-        transformer_output_dim = self.transformer.config.hidden_size
-        self.head = nn.Sequential(
-            nn.Linear(transformer_output_dim, 512),
-            nn.BatchNorm1d(512), nn.ReLU(), nn.Dropout(0.3),
-            nn.Linear(512, num_labels)
-        )
-        self.loss_fn = nn.CrossEntropyLoss()
-
-    def forward(self, input_ids, attention_mask, labels=None):
-        transformer_outputs = self.transformer(input_ids=input_ids, attention_mask=attention_mask)
-        cls_embedding = transformer_outputs.last_hidden_state[:, 0, :]
-        logits = self.head(cls_embedding)
-        loss = None
-        if labels is not None:
-            loss = self.loss_fn(logits, labels)
-        return (loss, logits) if loss is not None else logits
-
 class ReadabilityDataset(TorchDataset):
     def __init__(self, texts, labels=None):
         self.encodings = tokenizer(texts, truncation=True, padding="max_length", max_length=256)
@@ -158,54 +101,34 @@ class ReadabilityDataset(TorchDataset):
     def __getitem__(self, idx):
         item = {key: torch.tensor(val[idx]) for key, val in self.encodings.items()}
         if self.labels is not None:
-            # CORRECTED: No longer subtract 1, as labels are now 0-indexed from the mapping
             item['labels'] = torch.tensor(self.labels[idx], dtype=torch.long)
         return item
     def __len__(self):
-        return len(self.encodings['input_ids'])
+        return len(self.encodings.get('input_ids', []))
 
 def compute_metrics(p):
     preds = np.argmax(p.predictions, axis=1)
     return {"qwk": cohen_kappa_score(p.label_ids, preds, weights='quadratic')}
 
-
 # =====================================================================================
-# 6. LOAD MODEL: TRY CHECKPOINT, OR START FROM SCRATCH
+# 5. MODEL TRAINING
 # =====================================================================================
-print("\n===== ✨ LOADING MODEL =====\n")
+print("\n===== ✨ INITIALIZING MODEL AND TRAINER =====\n")
 
-# --- Create Datasets ---
+# Initialize the standard model for sequence classification
+model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=NUM_LABELS)
+
+# Create Datasets
 train_dataset = ReadabilityDataset(train_df['text'].tolist(), train_df['label'].tolist())
 val_dataset = ReadabilityDataset(val_df['text'].tolist(), val_df['label'].tolist())
-test_dataset = ReadabilityDataset(test_df['text'].tolist())
 
-# --- Define Checkpoint Path ---
-checkpoint_path = os.path.join(BASE_DIR, "results_simple_model/checkpoint-10284")
-
-# --- TRY/EXCEPT BLOCK FOR ROBUST LOADING ---
-try:
-    # Attempt to load from the local checkpoint
-    print(f"Attempting to load model from local checkpoint: {checkpoint_path}")
-    config = AutoConfig.from_pretrained(checkpoint_path)
-    transformer_model = AutoModel.from_pretrained(checkpoint_path, config=config)
-    print("✅ Successfully loaded model from local checkpoint.")
-except Exception as e:
-    # If it fails, fall back to the base model from Hugging Face Hub
-    print(f"❗️ Failed to load from checkpoint: {e}")
-    print(f"✨ Starting training from scratch using base model: {MODEL_NAME}")
-    transformer_model = AutoModel.from_pretrained(MODEL_NAME)
-
-# --- Instantiate your custom model with the loaded transformer ---
-# NUM_LABELS is now dynamically set, so this will be correct.
-model = SimpleReadabilityModel(transformer_model, num_labels=NUM_LABELS)
-
-# --- Define Training Arguments ---
+# Define Training Arguments
 training_args = TrainingArguments(
-    output_dir=os.path.join(BASE_DIR, "results_training"),
+    output_dir=CHECKPOINT_DIR,
     num_train_epochs=6,
     per_device_train_batch_size=16,
     per_device_eval_batch_size=32,
-    learning_rate=1e-5,
+    learning_rate=2e-5,
     warmup_ratio=0.1,
     weight_decay=0.01,
     logging_steps=100,
@@ -214,12 +137,12 @@ training_args = TrainingArguments(
     load_best_model_at_end=True,
     metric_for_best_model="qwk",
     greater_is_better=True,
-    save_total_limit=1,
+    save_total_limit=2,
     fp16=torch.cuda.is_available(),
     report_to="none"
 )
 
-# --- Initialize Trainer ---
+# Initialize Trainer
 trainer = Trainer(
     model=model,
     args=training_args,
@@ -229,33 +152,47 @@ trainer = Trainer(
     callbacks=[EarlyStoppingCallback(early_stopping_patience=2)]
 )
 
-# --- Start the training run ---
+# Start or Resume Training
+print("Starting or resuming training...")
+# The Trainer will automatically find and resume from the latest checkpoint if it exists.
+# trainer.train(resume_from_checkpoint=True) 
 trainer.train()
-print("Training finished.")
-
+print("✅ Training finished.")
 
 # =====================================================================================
-# 8. FINAL PREDICTION AND SUBMISSION
+# 6. FINAL PREDICTION AND SUBMISSION
 # =====================================================================================
 print("\n===== 🏆 FINAL PREDICTION AND SUBMISSION =====\n")
+try:
+    test_df_docs = pd.read_csv(BLIND_TEST_PATH)
+    # Explode documents into sentences, keeping track of the original doc_id
+    test_df = test_df_docs.assign(text=test_df_docs['Sentence'].str.split('\n')).explode('text').reset_index()
+    test_df.rename(columns={'ID': 'doc_id', 'text': 'sentence_text'}, inplace=True)
+    test_df.dropna(subset=['sentence_text'], inplace=True)
+    
+    print("Preprocessing blind test text...")
+    test_df['processed_text'] = test_df['sentence_text'].apply(arabert_preprocessor.preprocess)
+    
+    print("Generating predictions on the test set...")
+    test_dataset = ReadabilityDataset(test_df['processed_text'].tolist())
+    predictions = trainer.predict(test_dataset)
+    # The model predicts 0-18, so we add 1 to get back to the 1-19 scale
+    test_df['prediction'] = np.argmax(predictions.predictions, axis=1) + 1
 
-# --- Predict using the final, fine-tuned model ---
-print("Generating predictions on the test set...")
-predictions = trainer.predict(test_dataset)
-sentence_level_preds = np.argmax(predictions.predictions, axis=1) + 1
-test_df['prediction'] = sentence_level_preds
+    print("Aggregating sentence predictions to document-level using MAX rule...")
+    doc_level_preds = test_df.groupby('doc_id')['prediction'].max()
+    
+    submission_df = pd.DataFrame({'Document ID': doc_level_preds.index, 'Prediction': doc_level_preds.values})
 
-# --- Aggregate and Save ---
-print("Aggregating sentence predictions to document-level using MAX rule...")
-doc_level_preds = test_df.groupby('doc_id')['prediction'].max()
-submission_df = pd.DataFrame({'Document ID': doc_level_preds.index, 'Prediction': doc_level_preds.values})
+    print(f"Saving prediction file to: {SUBMISSION_PATH}")
+    submission_df.to_csv(SUBMISSION_PATH, index=False)
 
-print(f"Saving prediction file to: {SUBMISSION_PATH}")
-submission_df.to_csv(SUBMISSION_PATH, index=False)
+    print(f"\nCompressing '{os.path.basename(SUBMISSION_PATH)}' into '{os.path.basename(ZIPPED_SUBMISSION_PATH)}'...")
+    with zipfile.ZipFile(ZIPPED_SUBMISSION_PATH, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        zipf.write(SUBMISSION_PATH, arcname=os.path.basename(SUBMISSION_PATH))
 
-print(f"\nCompressing '{SUBMISSION_FILE_NAME}' into '{ZIPPED_SUBMISSION_PATH}'...")
-with zipfile.ZipFile(ZIPPED_SUBMISSION_PATH, 'w', zipfile.ZIP_DEFLATED) as zipf:
-    zipf.write(SUBMISSION_PATH, arcname=SUBMISSION_FILE_NAME)
+    print(f"Submission file '{os.path.basename(ZIPPED_SUBMISSION_PATH)}' created successfully.")
+except Exception as e:
+    print(f"An error occurred during final prediction: {e}")
 
-print(f"Submission file '{os.path.basename(ZIPPED_SUBMISSION_PATH)}' created successfully.")
 print("\n--- Script Finished ---")
