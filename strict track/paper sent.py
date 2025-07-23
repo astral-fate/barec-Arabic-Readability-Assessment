@@ -1,8 +1,9 @@
-# =====================================================================================
-# 0. INSTALLATIONS
-# =====================================================================================
-# Installing necessary libraries, including camel-tools for D3Tok preprocessing
-# !pip install transformers[torch] pandas numpy scikit-learn accelerate arabert
+!pip install camel-tools -q
+
+
+!pip install numpy --upgrade
+
+!pip install --upgrade transformers accelerate
 
 
 # =====================================================================================
@@ -125,8 +126,9 @@ class ReadabilityDataset(TorchDataset):
 
     def __getitem__(self, idx):
         item = {key: torch.tensor(val[idx]) for key, val in self.encodings.items()}
-        if self.labels is not a None:
-            # MODIFICATION: Ensure labels are floats for regression loss
+        # FIX: Corrected the syntax from 'is not a None' to 'is not None'
+        if self.labels is not None:
+            # Ensure labels are floats for regression loss
             item['labels'] = torch.tensor(self.labels[idx], dtype=torch.float)
         return item
 
