@@ -222,10 +222,10 @@ try:
     # The model predicts 0-18, so add 1 to get back to the 1-19 scale
     test_df['prediction'] = clipped_preds + 1
 
-    print("Aggregating sentence predictions to document-level using MAX rule...")
+    print("Aggregating sentence predictions to Sentence-level using MAX rule...")
     doc_level_preds = test_df.groupby('doc_id')['prediction'].max().astype(int)
     
-    submission_df = pd.DataFrame({'Document ID': doc_level_preds.index, 'Prediction': doc_level_preds.values})
+    submission_df = pd.DataFrame({'Sentence ID': doc_level_preds.index, 'Prediction': doc_level_preds.values})
 
     print(f"Saving prediction file to: {SUBMISSION_PATH}")
     submission_df.to_csv(SUBMISSION_PATH, index=False)
