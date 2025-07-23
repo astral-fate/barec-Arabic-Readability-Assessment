@@ -152,10 +152,11 @@ def compute_metrics(p):
     return {"qwk": cohen_kappa_score(p.label_ids, preds, weights='quadratic')}
 
 
+ 
 # =====================================================================================
-# 6. MODIFICATION: DIRECTLY RESUME TRAINING FROM A KNOWN CHECKPOINT
+# 6. MODIFICATION: LOAD WEIGHTS AND START NEW TRAINING
 # =====================================================================================
-print("\n===== ✨ RESUMING TRAINING FROM A SPECIFIC CHECKPOINT =====\n")
+print("\n===== ✨ LOADING WEIGHTS FROM CHECKPOINT TO START NEW TRAINING =====\n")
 
 # --- Create Datasets ---
 train_dataset = ReadabilityDataset(train_df['text'].tolist(), train_df['label'].tolist())
@@ -163,18 +164,18 @@ val_dataset = ReadabilityDataset(val_df['text'].tolist(), val_df['label'].tolist
 test_dataset = ReadabilityDataset(test_df['text'].tolist())
 
 # --- MANUALLY DEFINE THE CHECKPOINT PATH ---
-# This is the most important change. We are providing the exact path.
 checkpoint_path = os.path.join(BASE_DIR, "results_simple_model/checkpoint-10284")
-print(f"Will resume training from: {checkpoint_path}")
+print(f"Loading model weights from: {checkpoint_path}")
 
-# --- Initialize Model ---
-# We still initialize the model architecture, its weights will be loaded from the checkpoint.
-model = SimpleReadabilityModel(MODEL_NAME, num_labels=NUM_LABELS)
+# --- Initialize Model FROM THE CHECKPOINT PATH ---
+# This loads the weights you trained previously.
+model = SimpleReadabilityModel(checkpoint_path, num_labels=NUM_LABELS)
 
 # --- Define Training Arguments ---
+# (TrainingArguments remain the same)
 training_args = TrainingArguments(
     output_dir=os.path.join(BASE_DIR, "results_resumed_training"), # New directory for new logs
-    num_train_epochs=6,  # Fine-tune for another 3 epochs as requested
+    num_train_epochs=6,
     per_device_train_batch_size=16,
     per_device_eval_batch_size=32,
     learning_rate=1e-5,
@@ -192,6 +193,7 @@ training_args = TrainingArguments(
 )
 
 # --- Initialize Trainer ---
+# (Trainer initialization remains the same)
 trainer = Trainer(
     model=model,
     args=training_args,
@@ -201,11 +203,10 @@ trainer = Trainer(
     callbacks=[EarlyStoppingCallback(early_stopping_patience=2)]
 )
 
-# --- Resume training from the specified checkpoint ---
-# The initial training phase has been removed entirely.
-trainer.train(resume_from_checkpoint=checkpoint_path)
-print("Resumed training finished.")
-
+# --- Start a NEW training run (without resuming) ---
+# The model already has the weights, so this will fine-tune it further.
+trainer.train()
+print("Fine-tuning from checkpoint finished.")
 
 # =====================================================================================
 # 8. FINAL PREDICTION AND SUBMISSION
