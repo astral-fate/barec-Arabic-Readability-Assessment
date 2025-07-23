@@ -27,7 +27,7 @@ print("Google Drive mounted successfully.")
 # 2. CONFIGURATION
 # =====================================================================================
 # --- Model & Preprocessing ---
-MODEL_NAME = "asafaya/bert-large-arabic"
+MODEL_NAME = "aubmindlab/bert-base-arabertv2"
 arabert_preprocessor = ArabertPreprocessor(model_name=MODEL_NAME)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
@@ -56,14 +56,20 @@ ZIPPED_SUBMISSION_PATH = os.path.join(BASE_DIR, f"{SUBMISSION_FILE_NAME}.zip")
 # 3. DATA LOADING AND PREPROCESSING
 # =====================================================================================
 
+ 
 def load_training_and_validation_data():
     """Loads and prepares training and validation data from local CSVs."""
     print("--- Loading BAREC Data from CSV files ---")
     try:
         train_df = pd.read_csv(BAREC_TRAIN_PATH)
         val_df = pd.read_csv(BAREC_DEV_PATH)
-        train_df = train_df[['Sentence', 'Readability_Level_19']].rename(columns={'Sentence': 'text', 'Readability_Level_19': 'label'})
-        val_df = val_df[['Sentence', 'Readability_Level_19']].rename(columns={'Sentence': 'text', 'Readability_Level_19': 'label'})
+        
+        # --- CORRECTED SECTION ---
+        # Use the actual column names from your CSV file: 'Sentences' and 'Text_Class'
+        train_df = train_df[['Sentences', 'Text_Class']].rename(columns={'Sentences': 'text', 'Text_Class': 'label'})
+        val_df = val_df[['Sentences', 'Text_Class']].rename(columns={'Sentences': 'text', 'Text_Class': 'label'})
+        # --- END OF CORRECTION ---
+
     except (FileNotFoundError, KeyError) as e:
         print(f"❗️ ERROR loading local CSVs: {e}")
         return None, None
@@ -75,7 +81,6 @@ def load_training_and_validation_data():
     val_df.dropna(subset=['text'], inplace=True)
     print(f"Exploded into {len(train_df)} training sentences and {len(val_df)} validation sentences.")
     return train_df, val_df
-
 def load_blind_test_data(file_path):
     """Loads and prepares the blind test set from a local CSV file."""
     print(f"\n--- Loading Blind Test Data from local file: {file_path} ---")
@@ -227,3 +232,6 @@ with zipfile.ZipFile(ZIPPED_SUBMISSION_PATH, 'w', zipfile.ZIP_DEFLATED) as zipf:
 
 print(f"Submission file '{os.path.basename(ZIPPED_SUBMISSION_PATH)}' created successfully.")
 print("\n--- Script Finished ---")
+
+
+
