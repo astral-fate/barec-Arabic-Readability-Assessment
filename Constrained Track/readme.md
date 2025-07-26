@@ -67,10 +67,10 @@ Performing stratified split on SAMER data to move 15% to the dev set...
 
 
 
-______
+_____
 
 
-## old experimnt:
+## best performing experimnt:
 
 merging barec + same, and leaving dev as it is
 ✔ 97874 training and 7310 validation records.
@@ -80,4 +80,8 @@ merging barec + same, and leaving dev as it is
 - dev: 0.8103
 - test: 	82.9
 
+## spliting 85%, train, 15% dev
+ ## results
+- dev: 64
+- test: 50
 
