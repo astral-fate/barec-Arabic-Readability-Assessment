@@ -45,3 +45,24 @@ samer_level_map = {'L3': 4, 'L4': 10, 'L5': 16}
 
 **Summary:**  
 This mapping allows data from the SAMER corpus (which uses `L3`, `L4`, `L5`) to be “translated” into the BAREC scale (1–19) so the two datasets can be combined and used together. The numbers 4, 10, and 16 are chosen representative points in the BAREC scale for these SAMER levels.
+
+
+
+# Data distubutuon
+
+Barec train data has 54845 records 
+
+## SAMER distubutuon
+
+SAMER dataset has 43029 SAMER records in total.
+
+Performing stratified split on SAMER data to move 15% to the dev set...
+
+  - 6455 records will be added to the dev set.
+  - 36574 records will remain in the training set.
+
+## train and dev split
+New training set  (91419 records)
+New development set  (13765 records)
+
+
