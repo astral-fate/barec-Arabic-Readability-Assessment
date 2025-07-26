@@ -266,6 +266,9 @@ merges train dev test =  13868 DARES records
    ```
 
 
+_____
+
+
 ## experment 3: using only offoical train and dev  data distubution
 
 1. Loading BAREC data...
@@ -282,5 +285,16 @@ merges train dev test =  13868 DARES records
 
 ### result
 
-- dev: 81
-- test: 82.9
+- dev: 81.6
+- test: 83.6
+   
+## evaluating on the document
+changing the learning rate to 3:
+
+
+```
+Scores:
+{'accuracy': 41.0, 'accuracy+-1': 85.0, 'avg_abs_dist': 0.8, 'qwk': 77.9, 'accuracy_7': 65.0, 'accuracy_5': 65.0, 'accuracy_3': 90.0}
+
+```
+
