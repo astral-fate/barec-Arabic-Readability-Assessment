@@ -66,3 +66,18 @@ New training set  (91419 records)
 New development set  (13765 records)
 
 
+
+______
+
+
+## old experimnt:
+
+merging barec + same, and leaving dev as it is
+✔ 97874 training and 7310 validation records.
+
+## result
+
+dev: 0.8103
+test: 	82.9
+
+
