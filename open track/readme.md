@@ -238,6 +238,28 @@ merges train dev test =  13868 DARES records
 - New training set (66634 records)
 - New development set (9391 records)
 
+   ## training params
+  ```
+  training_args = TrainingArguments(
+    output_dir=CHECKPOINT_DIR,
+    num_train_epochs=10,
+    per_device_train_batch_size=16,
+    per_device_eval_batch_size=32,
+    # learning_rate=5e-5,
+    learning_rate=3e-5,
+    warmup_ratio=0.1,
+    weight_decay=0.01,
+    logging_steps=100,
+    eval_strategy="epoch",
+    save_strategy="epoch",
+    load_best_model_at_end=True,
+    metric_for_best_model="qwk",
+    greater_is_better=True,
+    save_total_limit=2,
+    fp16=torch.cuda.is_available(),
+    report_to="none"
+  ```
+
 
 ## experment 3: using only offoical train and dev  data distubution
 
