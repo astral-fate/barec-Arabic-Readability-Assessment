@@ -1,6 +1,6 @@
-
-
-The Core Strategy: A Hybrid "Two-Brain" Approach
+# summary of old custume pre-prossesing method
+<details>
+   The Core Strategy: A Hybrid "Two-Brain" Approach
 
 The most important thing to understand is that this isn't a standard, simple model. It uses a hybrid architecture, which is like giving the AI two different ways to "think" about a sentence.
 
@@ -209,3 +209,51 @@ the model performs a sophisticated, three-stage preprocessing pipeline designed 
 * ✅ **Feature Engineering**: This is fully implemented in the `get_lexical_features` function. The code in that function calculates the exact 7 features described in the documentation, which are then added as a new 'features' column to each dataframe.
 
 * ✅ **Tokenization**: This is fully implemented within the `ReadabilityDataset` class. The line `self.encodings = tokenizer(texts, truncation=True, padding="max_length", max_length=256)` uses the Hugging Face tokenizer to perform all the described tokenization steps—converting text to IDs, padding, truncating, adding special tokens, and creating an attention mask—in a single, efficient operation.
+
+</details>
+
+
+
+# Data distubution os dares dataset
+
+merges train dev test =  13868 DARES records
+
+## experment 1: unbalanced  data distubution
+
+- train: barec + 100% samer = 68715
+- dev: 100 barec, 0% dares = 7310
+  ### result
+  - dev: 63
+  - test: 50
+ 
+## experment 2: balanced  data distubution
+ 
+ 
+13868 DARES records in the merged file.
+- Performing stratified split on the DARES data to select 15.0% for the dev set...
+✔ DARES data split successfully!
+  - 2081 records will be added to the dev set.
+  - 11787 records will remain in the training set.
+
+- New training set (66634 records)
+- New development set (9391 records)
+
+
+## experment 3: using only offoical train and dev  data distubution
+
+1. Loading BAREC data...
+  - Loaded 54845 BAREC training records.
+  - Loaded 7310 BAREC validation records.
+
+2. Loading and mapping dares data...
+  - Loaded and mapped 9703 Osman training records.
+  - Loaded and mapped 1380 Osman validation records.
+
+3. Combining BAREC and dares datasets...
+  - Combined training data size: 64548 records.
+  - Combined validation data size: 8690 records.
+
+### result
+
+- dev: 81
+- test: 82.9
