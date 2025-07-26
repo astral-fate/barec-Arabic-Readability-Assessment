@@ -50,7 +50,7 @@ This mapping allows data from the SAMER corpus (which uses `L3`, `L4`, `L5`) to 
 
 # Data distubutuon
 
-Barec train data has 54845 records 
+- Barec train data has 54845 records 
 
 ## SAMER distubutuon
 
@@ -62,8 +62,8 @@ Performing stratified split on SAMER data to move 15% to the dev set...
   - 36574 records will remain in the training set.
 
 ## train and dev split
-New training set  (91419 records)
-New development set  (13765 records)
+- New training set  (91419 records)
+- New development set  (13765 records)
 
 
 
@@ -77,7 +77,7 @@ merging barec + same, and leaving dev as it is
 
 ## result
 
-dev: 0.8103
-test: 	82.9
+- dev: 0.8103
+- test: 	82.9
 
 
