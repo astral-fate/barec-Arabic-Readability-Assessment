@@ -245,8 +245,7 @@ merges train dev test =  13868 DARES records
     num_train_epochs=10,
     per_device_train_batch_size=16,
     per_device_eval_batch_size=32,
-    # learning_rate=5e-5,
-    learning_rate=3e-5,
+    learning_rate=5e-5,
     warmup_ratio=0.1,
     weight_decay=0.01,
     logging_steps=100,
@@ -259,6 +258,12 @@ merges train dev test =  13868 DARES records
     fp16=torch.cuda.is_available(),
     report_to="none"
   ```
+
+  ## results
+  ```
+   Scores:
+   {'accuracy': 8.2, 'accuracy+-1': 32.7, 'avg_abs_dist': 2.7, 'qwk': 55.6, 'accuracy_7': 20.7, 'accuracy_5': 37.7, 'accuracy_3': 53.0}
+   ```
 
 
 ## experment 3: using only offoical train and dev  data distubution
