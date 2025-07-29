@@ -33,8 +33,17 @@ Please find the information from the image organized into a Markdown table below
 
 https://arbml.github.io/masader/search
 
+
 https://github.com/drelhaj/OsmanReadability?tab=readme-ov-file 
 
 https://huggingface.co/aubmindlab/bert-base-arabertv2
 
 https://github.com/CAMeL-Lab/barec_analyzer/tree/main
+
+# used models
+
+- CAMeL-Lab/readability-arabertv2-d3tok-reg
+
+- aubmindlab/bert-base-arabertv2
+- CAMeL-Lab/readability-arabertv02-word-CE
+- CAMeL-Lab/readability-arabertv2-d3tok-reg
