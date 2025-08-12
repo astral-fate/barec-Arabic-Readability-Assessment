@@ -1,49 +1,113 @@
-# barec-Arabic-Readability-Assessment
+#  MorphoArabia at BAREC 2025 Shared Task: A Hybrid Architecture with Morphological Analysis for Arabic Readability Assessmen
 
-BAREC Shared Task 2025
-Arabic Readability Assessment
-The Third Arabic Natural Language Processing Conference (ArabicNLP 2025) @ EMNLP 2025
-https://barec.camel-lab.com/sharedtask2025
-
-
-## results
-
-Please find the information from the image organized into a Markdown table below:
-
-| Model                | Strict (Sentence) | Strict (Sentence) | Constrained (Sentence) | Constrained (Sentence) | Open (Sentence) | Open (Sentence) | Strict (Document) | Strict (Document) | Constrained (Document) | Constrained (Document) | Open (Document) | Open (Document) |
-|----------------------|-------------------|-------------------|------------------------|------------------------|-----------------|-----------------|-------------------|-------------------|------------------------|------------------------|-----------------|-----------------|
-|                      | dev               | test              | dev                    | test                   | dev             | test            | dev               | test              | dev                    | test                   | dev             | test            |
-| **Official progress Regression** | 0.822806          | 84.2              | 0.8103                 | 82.9                   | 82.7            | 83.6            | model as trained on senses 0.822806 | 79.9              | Same as train (83.5)   | 75.50                  | 82.7 | 79.2            |
+<p align="center">
+<img src="https://placehold.co/800x200/dbeafe/3b82f6?text=Barec-Readability-Assessment" alt="Barec Readability Assessment">
+</p>
 
 
+This repository contains the official models and results for **MorphoArabia**, the submission to the **[BAREC 2025 Shared Task](https://www.google.com/search?q=https://sites.google.com/view/barec-2025/home)** on Arabic Readability Assessment.
+
+#### By: [Fatimah Mohamed Emad Elden](https://scholar.google.com/citations?user=CfX6eA8AAAAJ&hl=ar)
+
+#### *Cairo University*
 
 
-# abilation study
+[![Paper](https://img.shields.io/badge/arXiv-25XX.XXXXX-b31b1b.svg)](https://arxiv.org/abs/25XX.XXXXX)
+[![Code](https://img.shields.io/badge/GitHub-Code-blue)](https://github.com/astral-fate/barec-Arabic-Readability-Assessment)
+[![HuggingFace](https://img.shields.io/badge/HuggingFace-Page-F9D371)](https://huggingface.co/collections/FatimahEmadEldin/barec-shared-task-2025-689195853f581b9a60f9bd6c)
+[![License](https://img.shields.io/badge/License-MIT-lightgrey)](https://github.com/astral-fate/mentalqa2025/blob/main/LICENSE)
 
+---
 
-| Model | Strict - Sentence (dev) | Strict - Sentence (test) | Constrained - Sentence (dev) | Constrained - Sentence (test) | Open - Sentence (dev) | Open - Sentence (test) | Strict - Document (dev) | Strict - Document (test) | Constrained - Document (dev) | Constrained - Document (test) | Open - Document (dev) | Open - Document (test) |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **CAMeL-Lab/readability-araberty02-word-CE** | 0.749514 | 78.20, {'accuracy': 53.0, 'accuracy+1': 68.2, 'avg_abs_dist': 1.2, 'wae': 68.2, 'accuracy_7': 63.3, 'accuracy_5': 67.8, 'accuracy_3': 74.2} | 69 | 72.20 | test | test | test | test | test | test | test | test |
-| **CAMeL-Lab/bert-base-arabic-camelbert-mix-sentiment** | test | **82.70** | 78.50 | 79.60 | test | current | test | test | test | test | test | test |
-| **Arabert base v2** | 81 | 82.60 {'accuracy': 59.6, 'accuracy+1': 78.6, 'avg_abs_dist': 1.8, 'wae': 68.5, 'accuracy_7': 68.5, 'accuracy_5': 72.2, 'accuracy_3': 77.8} | test | 78 | 78 | 44 | Osman 79.6 {'accuracy': 53.8, 'accuracy+1': 68.0, 'avg_abs_dist': 1.4, 'wae': 79.6, 'accuracy_7': 63.8, 'accuracy_5': 68.8, 'accuracy_3': 73.7} | test | Samer @ Osman 73.1, Suares-{'accuracy': 45.8, 'accuracy+1': 59.3, 'avg_abs_dist': 1.5, 'wae': 73.1, 'accuracy_7': 56.2, 'accuracy_5': 62.1, 'accuracy_3': 70.2} | test | test | test |
+## Model Description
 
+This project introduces a **morphologically-aware approach** for assessing the readability of Arabic text. The system is built around a fine-tuned regression model designed to process morphologically analyzed text. For the **Constrained** and **Open** tracks of the shared task, this core model is extended into a hybrid architecture that incorporates seven engineered lexical features.
 
+A key element of this system is its deep morphological preprocessing pipeline, which uses the **CAMEL Tools d3tok analyzer**. This allows the model to capture linguistic complexities that are often missed by surface-level tokenization methods. This approach proved to be highly effective, achieving a peak **Quadratic Weighted Kappa (QWK) score of 84.2** on the strict sentence-level test set.
 
-# refrences
+The model predicts a readability score on a **19-level scale**, from 1 (easiest) to 19 (hardest), for a given Arabic sentence or document.
 
-https://arbml.github.io/masader/search
+-----
 
+## 🚀 How to Use
 
-https://github.com/drelhaj/OsmanReadability?tab=readme-ov-file 
+You can use the fine-tuned models directly with the `transformers` library pipeline for `text-regression`. The following example uses the best-performing model from the **Strict** track.
 
-https://huggingface.co/aubmindlab/bert-base-arabertv2
+```python
+from transformers import pipeline
 
-https://github.com/CAMeL-Lab/barec_analyzer/tree/main
+# Load the regression pipeline
+# This model is the best performer for the Strict track
+# It's also the base model for the other tracks.
+regressor = pipeline(
+    "text-regression",
+    model="FatimahEmadEldin/MorphoArabia-CAMEL-BERT-BAREC-Strict-Sentence"
+)
 
-# used models
+# Example sentence in Arabic
+sentence = "أليست هذه العاطفة التي نخافها ونرتجف لمرورها في صدورنا جزءا من الناموس الكلي"
+# (Translation: "Isn't this emotion, which we fear and tremble at its passing in the chests, a part of the universal law?")
 
-- CAMeL-Lab/readability-arabertv2-d3tok-reg
+# Get the readability score
+results = regressor(sentence)
 
-- aubmindlab/bert-base-arabertv2
-- CAMeL-Lab/readability-arabertv02-word-CE
-- CAMeL-Lab/readability-arabertv2-d3tok-reg
+# The output is a score between 1 and 19
+predicted_score = results[0]['score']
+
+print(f"Sentence: {sentence}")
+print(f"Predicted Readability Score: {predicted_score:.2f}")
+
+```
+
+-----
+
+## ⚙️ Training Procedure
+
+The system employs two distinct architectures based on the track's constraints:
+
+  * **Strict Track**: This track uses a base regression model, `CAMeL-Lab/readability-arabertv2-d3tok-reg`, fine-tuned directly on the BAREC dataset.
+  * **Constrained and Open Tracks**: These tracks utilize a hybrid model. This architecture combines the deep contextual understanding of the Transformer with explicit numerical features. The final representation for a sentence is created by concatenating the Transformer's `[CLS]` token embedding with a 7-dimensional vector of engineered lexical features derived from the SAMER lexicon.
+
+A critical component of the system is its preprocessing pipeline, which leverages the CAMEL Tools `d3tok` format. The `d3tok` analyzer performs a deep morphological analysis by disambiguating words in context and then segmenting them into their constituent morphemes.
+
+### Frameworks
+
+  * PyTorch
+  * Hugging Face Transformers
+
+-----
+
+### 📊 Evaluation Results
+
+The models were evaluated on the blind test set provided by the BAREC organizers. The primary metric for evaluation is the **Quadratic Weighted Kappa (QWK)**, which penalizes larger disagreements more severely.
+
+#### Final Test Set Scores (QWK)
+
+| Track | Task | Dev (QWK) | Test (QWK) |
+| :--- | :--- | :---: | :---: |
+| **Strict** | Sentence | 0.823 | **84.2** |
+| | Document | 0.823\* | 79.9 |
+| **Constrained** | Sentence | 0.810 | 82.9 |
+| | Document | 0.835\* | 75.5 |
+| **Open** | Sentence | 0.827 | 83.6 |
+| | Document | 0.827\* | **79.2** |
+
+\*Document-level dev scores are based on the performance of the sentence-level model on the validation set.
+
+-----
+
+## 📜 Citation
+
+If you use the work, please cite the paper:
+
+```
+@inproceedings{eldin2025morphoarabia,
+    title={{MorphoArabia at BAREC 2025 Shared Task: A Hybrid Architecture with Morphological Analysis for Arabic Readability Assessmen}},
+    author={Eldin, Fatimah Mohamed Emad},
+    year={2025},
+    booktitle={Proceedings of the BAREC 2025 Shared Task},
+    eprint={25XX.XXXXX},
+    archivePrefix={arXiv},
+    primaryClass={cs.CL}
+}
+```
