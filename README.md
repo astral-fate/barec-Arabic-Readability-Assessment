@@ -49,7 +49,7 @@ sentence = "أليست هذه العاطفة التي نخافها ونرتجف 
 # (Translation: "Isn't this emotion, which we fear and tremble at its passing in the chests, a part of the universal law?")
 
 # Get the readability score
-results = regressor(sentence)
+results = regressor[Sentence]
 
 # The output is a score between 1 and 19
 predicted_score = results[0]['score']
@@ -85,14 +85,14 @@ The models were evaluated on the blind test set provided by the BAREC organizers
 
 | Track | Task | Dev (QWK) | Test (QWK) |
 | :--- | :--- | :---: | :---: |
-| **Strict** | Sentence | 0.823 | **84.2** |
-| | Document | 0.823\* | 79.9 |
-| **Constrained** | Sentence | 0.810 | 82.9 |
-| | Document | 0.835\* | 75.5 |
-| **Open** | Sentence | 0.827 | 83.6 |
-| | Document | 0.827\* | **79.2** |
+| **Strict** | [Sentence](https://huggingface.co/FatimahEmadEldin/Strict-Track-Sentence-and-Doc-Bassline-Readability-arabertv2) | 0.823 | **84.2** |
+| | [Document](https://huggingface.co/FatimahEmadEldin/Strict-Track-Sentence-and-Doc-Bassline-Readability-arabertv2) |0.6237 | 79.9 |
+| **Constrained** | [Sentence](https://huggingface.co/FatimahEmadEldin/Constrained-Track-Sentence-Bassline-Readability-Arabertv2-d3tok-reg) | 0.810 | 82.9 |
+| | [Document](https://huggingface.co/FatimahEmadEldin/Constrained-Track-Document-Bassline-Readability-Arabertv2-d3tok-reg) | 0.6430 | 75.5 |
+| **Open** | [Sentence](https://huggingface.co/FatimahEmadEldin/Open-Track-Sentence-Bassline-Readability-Arabertv2-d3tok-reg) | 0.827 | 83.6 |
+| | [Document](https://huggingface.co/FatimahEmadEldin/Open-Track-Document-Bassline-Readability-Arabertv2-d3tok-reg) | 0.6048 | **79.2** |
 
-\*Document-level dev scores are based on the performance of the sentence-level model on the validation set.
+\*Document-level dev scores are based on the performance of the sentence-level model on the test set.
 
 -----
 
