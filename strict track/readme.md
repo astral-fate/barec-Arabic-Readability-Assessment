@@ -3,6 +3,7 @@
 
 
 
+
 ### High-Level Summary: Two Different Philosophies
 
 1.  **the Custom (`arabert.preprocess`) Method:** This approach follows a philosophy of **simplification and feature enrichment**. You clean and normalize the text to make it simpler and more consistent for the model. Then, you *separately* calculate explicit numerical features (like word count, lexicon scores) to give the model extra, targeted information about readability.
